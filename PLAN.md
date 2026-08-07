@@ -48,8 +48,9 @@ been committed (7 August 2026), so nothing blocks any milestone:
    `L_TO_BYTE` lookup table live at the top of its script block; the lighting pipeline reuses
    that maths rather than re-deriving it, verified by the L\* 50 → sRGB byte 119 check.
 
-Per the README: these are personal WIP photos — the repository stays private, or they come
-out before it goes public.
+Per the README these are personal WIP photos. Decision (7 Aug 2026): the repository stays
+private permanently, and the owner will swap these images out before anything goes live —
+so nothing in the app, marketing site, or public assets may reference them directly.
 
 ---
 
