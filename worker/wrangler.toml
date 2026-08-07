@@ -1,0 +1,14 @@
+# Studioshot API — Cloudflare Worker.
+# Secrets (never in this file, set via `wrangler secret put`):
+#   FAL_KEY               fal.ai queue API key (segmentation)
+#   SUPABASE_URL          Supabase project URL
+#   SUPABASE_SERVICE_KEY  Supabase service-role key (server-only)
+
+name = "studioshot-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+# M1: R2 buckets (originals / masks / exports) get bound here.
+# [[r2_buckets]]
+# binding = "IMAGES"
+# bucket_name = "studioshot-images"

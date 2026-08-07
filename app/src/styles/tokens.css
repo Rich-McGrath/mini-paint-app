@@ -1,0 +1,67 @@
+/* Design tokens — the only styling source. Values are DESIGN.md §4; change them there first.
+   The tool is dark-only (DESIGN.md §6): a light UI around a photograph harms value judgement. */
+
+:root {
+  /* Colour — dark neutral. Colour lives in the user's photograph, not the interface. */
+  --canvas: #0e0e11;
+  --surface: #16161a;
+  --surface-raised: #1d1d22;
+  --border: #26262c;
+  --border-strong: #34343c;
+  --text-primary: #e8e8ec;
+  --text-secondary: #a0a0ac;
+  --text-tertiary: #6e6e7a;
+  /* Accent appears ONLY on interactive affordances, never as decoration,
+     and never immediately adjacent to the image preview. */
+  --accent: #6e8acf;
+  --success: #5fa97b;
+  --warning: #c9a24d;
+  --danger: #c96a6a;
+
+  /* Preview backgrounds — user-switchable. Export is always on true black.
+     Mid grey is the true perceptual middle (L* 50 → byte 119 = #777777), not #808080. */
+  --preview-black: #000000;
+  --preview-grey: #777777;
+  --preview-white: #ffffff;
+
+  /* Type — one neutral sans, system stack, no webfont payload */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+  --text-xs: 12px;
+  --text-sm: 13.5px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --weight-regular: 400;
+  --weight-medium: 550;
+  --weight-bold: 700;
+
+  /* Spacing — base unit 4px */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* Shape */
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-frame: 12px;
+
+  /* Motion — most UI state changes are instant. The before/after reveal is
+     the one indulgence; everything else stays at fast. */
+  --motion-fast: 140ms ease-out;
+  --motion-reveal: 500ms;
+
+  /* Touch targets: 44px minimum (phone first) */
+  --touch-min: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-reveal: 0ms;
+  }
+}

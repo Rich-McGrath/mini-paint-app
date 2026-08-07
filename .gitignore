@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+*.local
+.env
+.env.*
+.dev.vars
+
+# test byproducts (see README)
+fixtures.js
+contact-sheet.png
