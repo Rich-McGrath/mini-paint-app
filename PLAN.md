@@ -17,14 +17,22 @@ for each. All four are cheap to reverse if overturned; none is silently final.
 | Open decision | Default adopted here | Why | Cost to reverse |
 |---|---|---|---|
 | **Name** | "Studioshot" — the name both design mockups already use | Mockups, copy and domain placeholder (`studioshot.app`) are already written under it | Find-and-replace before launch |
-| **Stack** | Cloudflare: Pages + Workers + R2 + D1 | R2 is already the stated storage preference; zero egress fees serve the "bandwidth is the main cost" constraint; one vendor | Frontend is a plain Vite SPA and the API is small — portable |
-| **Segmentation API** | Build behind a `SegmentationProvider` interface; bake off 2–3 vendors against the seven bad photos | Vendor is TBD in the spec; the interface makes the choice a config change, and per-image price (the free-tier question) needs real quotes anyway | None — the interface is the point |
+| **Stack** | Cloudflare: Pages + Workers + R2 + D1 | R2 is already the stated storage preference; zero egress fees serve the "bandwidth is the main cost" constraint; and the owner's previous app already runs this shape (Cloudflare Worker with server-only vendor keys), so the patterns and account exist | Frontend is a plain Vite SPA and the API is small — portable |
+| **Segmentation API** | fal.ai queue API first — this is the existing plumbing from the previous project (`FAL_KEY`, server-only, queue-based calls from a Worker) — behind a `SegmentationProvider` interface; bake off fal-hosted matting models against the seven bad photos, with one commercial API as a control | Reusing working plumbing is days saved; fal hosts the strongest open matting models pay-per-use; the interface still makes the vendor a config change if quality disappoints | None — the interface is the point |
 | **Value view in v1** | Out | WIPicle ships it; SPEC §10 says "minor feature at most". Nothing else depends on it | Additive later; the L\* maths is preserved either way |
 
-Bake-off candidates: Photoroom API, remove.bg, and a Replicate-hosted open model
-(BiRefNet or RMBG-2.0) as the price floor. Judged on: pot/handle behaviour, thin structures
-(spears, banners, antennae), edge quality at full resolution, latency, and per-image price.
-The u2net floor test in SPEC §10 means any production vendor should clear the bar.
+Bake-off candidates, all reachable through the existing fal.ai plumbing: **BiRefNet v2**
+(state-of-the-art open matting, cheap per call) and **BRIA RMBG-2.0** (commercially licensed,
+trained on product shots), plus **remove.bg or Photoroom** as an external control if neither
+clears the bar. Judged on: pot/handle behaviour, thin structures (spears, banners, antennae),
+edge quality at full resolution, latency through the queue API, and per-image price. The u2net
+floor test in SPEC §10 means any production model should clear the bar.
+
+Two notes from the previous project's stack: the **SAM 3** access that exists there but is
+unused is a plausible v1.x upgrade for tap-to-remove (tap point → segment → subtract from
+mask) — noted, not scoped into v1. And the Anthropic/Claude text plumbing has **no use in
+v1**: this product has no text-generation or vision-critique features, and adding any would
+collide with the no-AI-aesthetic rule and the v3 critique sequencing.
 
 ---
 
@@ -54,7 +62,7 @@ Phone browser (SPA, dark-only, phone-first)
   ▼
 Cloudflare Worker (Hono)
   ├── POST /uploads        → presigned R2 PUT, creates image record (D1)
-  ├── POST /segment        → SegmentationProvider adapter → vendor API → mask to R2
+  ├── POST /segment        → SegmentationProvider adapter → fal.ai queue API → mask to R2
   ├── GET  /images/:id     → record + signed URLs
   └── POST /masks/:id      → store user-corrected mask (the flywheel)
 R2 buckets: originals (short retention) · downscaled+masks (kept) · exports (transient)
