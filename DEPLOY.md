@@ -3,6 +3,10 @@
 One Cloudflare Worker serves everything: the built SPA as static assets, and the API under
 `/api`. Uploads stream through the Worker into R2 — no presigned URLs, no CORS, no egress fees.
 
+**Prerequisite: Node.js 22+** (Wrangler 4 refuses older). With nvm: `nvm install 22` — the
+repo's `.nvmrc` selects it automatically via `nvm use`. After switching Node versions, re-run
+`rm -rf node_modules && npm install` so native modules rebuild.
+
 ## One-time setup (owner)
 
 1. **Cloudflare** — log in and create the bucket:
