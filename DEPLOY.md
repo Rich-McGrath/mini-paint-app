@@ -76,6 +76,30 @@ Without Supabase secrets, records fall back to an in-memory map (fine locally; p
 in production, so Supabase is required for a real deploy). The mock returns the photo uncut,
 which also leaves lighting inert — fine for exercising the editor, useless for judging it.
 
+## When the name is decided — domain, sender, branding
+
+Parked until the product name is final (working title "Studioshot"). Do these together;
+they all hang off the domain:
+
+1. **Register the domain** — Cloudflare Registrar (at-cost, DNS lands in the same dashboard
+   as the Worker).
+2. **Point the domain at the Worker** — Cloudflare dashboard → Workers → this worker →
+   Settings → Domains & Routes → add custom domain. Nothing in the code assumes a hostname.
+3. **Transactional email** — sign up with Resend or Postmark (free tiers suffice), add the
+   domain, paste their SPF/DKIM records into Cloudflare DNS.
+4. **Custom SMTP in Supabase** — Project Settings → Authentication → SMTP Settings: enable,
+   fill in the service's credentials, sender `hello@<domain>` / sender name = product name.
+   ⚠ Supabase's built-in sender is dev-only and rate-limited to a few emails per hour — a
+   signup rush (e.g. a NOVA table) will hit the wall. If sign-in is part of the pitch, do
+   this before the event.
+5. **Update auth URLs** — Supabase → Authentication → URL Configuration → Site URL to the
+   new domain; rebuild + redeploy so the app and magic links match.
+6. **Email templates** — Authentication → Emails: re-word "Confirm sign up" and "Magic Link"
+   under the final name (keep `{{ .ConfirmationURL }}` as the link). Copy stays plain per
+   DESIGN.md §3: no magic language.
+7. **Rename sweep in the repo** — wordmark, `<title>`, terms page, `wrangler.toml` name,
+   PLAN.md. It's a find-and-replace; nothing structural.
+
 ## Smoke test after deploy
 
 Upload a photo from a phone, confirm the cutout appears on black and downloads. Then the real
