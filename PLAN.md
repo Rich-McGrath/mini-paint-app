@@ -36,21 +36,20 @@ collide with the no-AI-aesthetic rule and the v3 critique sequencing.
 
 ---
 
-## 2. Two blockers to resolve before image work starts
+## 2. Former blockers — both resolved
 
-Both are references to files the README documents but the repository does not contain:
+Two files the README documents were initially absent from the repository. Both have since
+been committed (7 August 2026), so nothing blocks any milestone:
 
-1. **`test-photos/bad-photos/` is missing.** CLAUDE.md requires every image feature to be
-   tested against these seven photos, and the known failure modes (pot mounts ×4, backdrop
-   board ×1, hand-held ×2) are the acceptance criteria for the correction tools. The lighting
-   pipeline and the bake-off cannot be validated without them. → **Owner uploads them.**
-2. **`value-check.html` is missing.** It holds the tested sRGB → linear → CIE L\* conversion
-   and the L\*→byte lookup table that the README says to reuse rather than re-derive. If the
-   file can't be recovered, re-derivation is straightforward and the README records the
-   verification case (L\* 50 → sRGB byte 119, not 128) — but recovering it is cheaper.
-   → **Owner uploads it, or approves re-derivation against that check.**
+1. **`test-photos/bad-photos/`** — the seven fixture photos are in the repo. Every image
+   feature is tested against them; the known failure modes (pot mounts ×4, backdrop board ×1,
+   hand-held ×2) are the acceptance criteria for the correction tools.
+2. **`value-check.html`** — recovered. The tested sRGB → linear → CIE L\* conversion and the
+   `L_TO_BYTE` lookup table live at the top of its script block; the lighting pipeline reuses
+   that maths rather than re-deriving it, verified by the L\* 50 → sRGB byte 119 check.
 
-Neither blocks Milestones 0–1 (scaffolding and plumbing). Both block Milestone 2 onward.
+Per the README: these are personal WIP photos — the repository stays private, or they come
+out before it goes public.
 
 ---
 
