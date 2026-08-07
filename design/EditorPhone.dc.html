@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+html,body{margin:0;background:#0E0E11}
+a{color:#6E8ACF}a:hover{color:#8FA5DB}
+@keyframes ss-bar{0%{transform:translateX(-100%)}100%{transform:translateX(260%)}}
+</style>
+</helmet>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="440px,920px">
+<div style="height:100%;display:flex;flex-direction:column;padding-top:56px;box-sizing:border-box;background:#0E0E11;color:#E8E8EC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;position:relative;overflow:hidden;">
+
+  <sc-if value="{{ isUpload }}" hint-placeholder-val="{{ true }}">
+    <div style="padding:18px 16px 0;text-align:center;font-size:13.5px;font-weight:700;letter-spacing:0.12em;color:#A0A0AC;">STUDIOSHOT</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:0 32px;text-align:center;">
+      <div style="font-size:24px;font-weight:700;line-height:1.2;text-wrap:pretty;">Shot at your desk.</div>
+      <div style="font-size:15px;color:#A0A0AC;line-height:1.45;text-wrap:pretty;">Background removed, lighting fixed. Ready to post.</div>
+      <button onClick="{{ startUpload }}" style="margin-top:16px;height:50px;padding:0 32px;border-radius:6px;background:#6E8ACF;border:none;color:#0E0E11;font-size:15px;font-weight:550;cursor:pointer;font-family:inherit;">Choose photo</button>
+      <div style="font-size:12px;color:#6E6E7A;">Your original is never modified</div>
+    </div>
+    <div style="padding:0 16px 24px;text-align:center;font-size:12px;color:#6E6E7A;"> </div>
+  </sc-if>
+
+  <sc-if value="{{ isProcessing }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:1;position:relative;margin:12px;border-radius:12px;border:1px solid #26262C;overflow:hidden;">
+      <img src="assets/before-crop.png" alt="Your photo" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:brightness(0.55);" />
+      <div style="position:absolute;left:16px;right:16px;bottom:16px;background:rgba(22,22,26,0.92);border:1px solid #34343C;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:13.5px;color:#E8E8EC;">{{ procLabel }}</div>
+        <div style="height:2px;border-radius:1px;background:#26262C;overflow:hidden;position:relative;"><div style="position:absolute;top:0;bottom:0;width:40%;background:#6E8ACF;animation:ss-bar 1.1s linear infinite;"></div></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isEdit }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;align-items:center;height:52px;padding:0 6px;gap:4px;">
+      <button onClick="{{ resetApp }}" style="width:44px;height:44px;background:none;border:none;color:#A0A0AC;font-size:24px;line-height:1;cursor:pointer;font-family:inherit;">‹</button>
+      <div style="flex:1;text-align:center;font-size:13.5px;color:#6E6E7A;">IMG_0837</div>
+      <sc-if value="{{ showTopSave }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ openDl }}" style="height:44px;padding:0 12px;background:none;border:none;color:#6E8ACF;font-size:15px;font-weight:550;cursor:pointer;font-family:inherit;">Save</button>
+      </sc-if>
+      <sc-if value="{{ isSheet }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ undo }}" style="width:44px;height:44px;background:none;border:none;color:#A0A0AC;font-size:18px;cursor:pointer;font-family:inherit;">↺</button>
+      </sc-if>
+    </div>
+
+    <div style="flex:1;display:flex;padding:0 12px;">
+      <div ref="{{ previewRef }}" style="position:relative;flex:1;border-radius:12px;border:1px solid #26262C;overflow:hidden;background:{{ bgColor }};touch-action:none;">
+        <img src="{{ cutoutSrc }}" alt="Cutout" draggable="{{ false }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;clip-path:{{ cutoutClip }};" />
+        <canvas ref="{{ brushRef }}" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;"></canvas>
+
+        <sc-if value="{{ showDivider }}" hint-placeholder-val="{{ false }}">
+          <img src="assets/before-crop.png" alt="Original" draggable="{{ false }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;clip-path:{{ beforeClip }};" />
+          <sc-if value="{{ showBeforeChip }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:12px;left:12px;padding:4px 10px;border-radius:999px;background:rgba(22,22,26,0.85);border:1px solid #34343C;font-size:12px;color:#A0A0AC;">Original</div>
+          </sc-if>
+          <div style="position:absolute;top:0;bottom:0;left:{{ dividerLeft }};width:2px;margin-left:-1px;background:#E8E8EC;box-shadow:0 0 6px rgba(0,0,0,0.6);"></div>
+          <div onPointerDown="{{ compareDown }}" onPointerMove="{{ compareMove }}" style="position:absolute;top:50%;left:clamp(24px, {{ dividerLeft }}, calc(100% - 24px));transform:translate(-50%,-50%);width:38px;height:38px;border-radius:50%;background:#E8E8EC;color:#0E0E11;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;cursor:ew-resize;box-shadow:0 2px 8px rgba(0,0,0,0.5);touch-action:none;user-select:none;">‹›</div>
+        </sc-if>
+
+        <sc-if value="{{ isTrim }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;left:0;right:0;top:{{ trimTop }};bottom:0;background:rgba(14,14,17,0.55);"></div>
+          <div style="position:absolute;left:0;right:0;top:{{ trimTop }};height:2px;margin-top:-1px;background:#6E8ACF;"></div>
+          <div onPointerDown="{{ trimDown }}" onPointerMove="{{ trimMove }}" style="position:absolute;left:50%;top:{{ trimTop }};transform:translate(-50%,-50%);height:32px;padding:0 14px;border-radius:999px;background:#6E8ACF;color:#0E0E11;display:flex;align-items:center;font-size:12px;font-weight:700;cursor:ns-resize;touch-action:none;user-select:none;">DRAG TO TRIM</div>
+        </sc-if>
+
+        <sc-if value="{{ isTap }}" hint-placeholder-val="{{ false }}">
+          <div onClick="{{ handleTap }}" style="position:absolute;inset:0;cursor:crosshair;"></div>
+        </sc-if>
+
+        <sc-if value="{{ isBrush }}" hint-placeholder-val="{{ false }}">
+          <div onPointerDown="{{ brushDown }}" onPointerMove="{{ brushMove }}" onPointerUp="{{ brushUp }}" style="position:absolute;inset:0;cursor:crosshair;touch-action:none;"></div>
+        </sc-if>
+
+        <sc-if value="{{ isLoupe }}" hint-placeholder-val="{{ false }}">
+          <div onPointerDown="{{ loupeDown }}" onPointerMove="{{ loupeMove }}" style="{{ loupeOuter }}">
+            <div style="{{ loupeInner }}"><img src="{{ cutoutSrc }}" alt="" draggable="{{ false }}" style="width:100%;height:100%;object-fit:contain;" /></div>
+            <div style="position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 0 0 2px #34343C;pointer-events:none;"></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ pillVisible }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:flex;gap:2px;padding:4px;background:rgba(22,22,26,0.9);border:1px solid #34343C;border-radius:999px;backdrop-filter:blur(8px);">
+            <sc-for list="{{ tools }}" as="t" hint-placeholder-count="4">
+              <button onClick="{{ t.pick }}" style="height:44px;padding:0 13px;border-radius:999px;background:{{ t.pillBg }};border:none;color:{{ t.color }};font-size:13px;font-weight:550;cursor:pointer;font-family:inherit;">{{ t.label }}</button>
+            </sc-for>
+            <button onClick="{{ undo }}" style="height:44px;width:44px;border-radius:999px;background:none;border:none;color:#A0A0AC;font-size:17px;cursor:pointer;font-family:inherit;">↺</button>
+          </div>
+          <div style="position:absolute;top:12px;right:12px;display:flex;flex-direction:column;gap:4px;padding:6px;background:rgba(22,22,26,0.9);border:1px solid #34343C;border-radius:999px;">
+            <sc-for list="{{ bgOpts }}" as="o" hint-placeholder-count="3">
+              <button onClick="{{ o.pick }}" style="width:32px;height:32px;border-radius:50%;background:none;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;"><span style="display:block;width:22px;height:22px;border-radius:50%;background:{{ o.color }};border:2px solid {{ o.ring }};"></span></button>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ toolStripOn }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;left:12px;right:12px;bottom:12px;display:flex;align-items:center;gap:8px;background:rgba(22,22,26,0.92);border:1px solid #34343C;border-radius:10px;padding:8px 8px 8px 12px;">
+            <div style="flex:1;font-size:13px;color:#A0A0AC;line-height:1.3;">{{ toolHint }}</div>
+            <sc-if value="{{ isBrush }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;gap:4px;align-items:center;">
+                <button onClick="{{ setAdd }}" style="height:32px;padding:0 10px;border-radius:6px;background:{{ addBg }};border:1px solid #34343C;color:{{ addColor }};font-size:12px;font-weight:550;cursor:pointer;font-family:inherit;">Add</button>
+                <button onClick="{{ setErase }}" style="height:32px;padding:0 10px;border-radius:6px;background:{{ eraseBg }};border:1px solid #34343C;color:{{ eraseColor }};font-size:12px;font-weight:550;cursor:pointer;font-family:inherit;">Erase</button>
+                <sc-for list="{{ brushSizes }}" as="s" hint-placeholder-count="3">
+                  <button onClick="{{ s.pick }}" style="width:32px;height:32px;border-radius:6px;background:none;border:1px solid {{ s.ring }};display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;"><span style="display:block;width:{{ s.dot }}px;height:{{ s.dot }}px;border-radius:50%;background:#A0A0AC;"></span></button>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ isTrim }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ closeTool }}" style="height:36px;padding:0 10px;background:none;border:none;color:#A0A0AC;font-size:13.5px;cursor:pointer;font-family:inherit;">Cancel</button>
+            </sc-if>
+            <button onClick="{{ toolPrimary }}" style="height:36px;padding:0 14px;border-radius:6px;background:#6E8ACF;border:none;color:#0E0E11;font-size:13.5px;font-weight:550;cursor:pointer;font-family:inherit;">{{ toolPrimaryLabel }}</button>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <sc-if value="{{ isDock }}" hint-placeholder-val="{{ true }}">
+      <div style="padding:8px 16px 14px;display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
+          <span style="font-size:12px;color:#6E6E7A;margin-right:4px;">Background</span>
+          <sc-for list="{{ bgOpts }}" as="o" hint-placeholder-count="3">
+            <button onClick="{{ o.pick }}" style="width:44px;height:44px;border-radius:50%;background:none;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;"><span style="display:block;width:24px;height:24px;border-radius:50%;background:{{ o.color }};border:2px solid {{ o.ring }};"></span></button>
+          </sc-for>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <sc-for list="{{ tools }}" as="t" hint-placeholder-count="4">
+            <button onClick="{{ t.pick }}" style="flex:1;height:48px;border-radius:6px;background:#16161A;border:1px solid {{ t.border }};color:{{ t.color }};font-size:12px;font-weight:550;cursor:pointer;font-family:inherit;padding:0 2px;">{{ t.label }}</button>
+          </sc-for>
+          <button onClick="{{ undo }}" style="width:48px;height:48px;border-radius:6px;background:#16161A;border:1px solid #26262C;color:#A0A0AC;font-size:18px;cursor:pointer;font-family:inherit;">↺</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isPill }}" hint-placeholder-val="{{ false }}">
+      <div style="height:14px;"></div>
+    </sc-if>
+
+    <sc-if value="{{ isSheet }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;gap:8px;padding:10px 16px 14px;align-items:center;">
+        <button onClick="{{ openSheet }}" style="flex:1;height:50px;border-radius:6px;background:#16161A;border:1px solid #26262C;color:#E8E8EC;font-size:15px;font-weight:550;cursor:pointer;font-family:inherit;">Fix cutout</button>
+        <div style="display:flex;">
+          <sc-for list="{{ bgOpts }}" as="o" hint-placeholder-count="3">
+            <button onClick="{{ o.pick }}" style="width:38px;height:50px;background:none;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;"><span style="display:block;width:22px;height:22px;border-radius:50%;background:{{ o.color }};border:2px solid {{ o.ring }};"></span></button>
+          </sc-for>
+        </div>
+        <button onClick="{{ openDl }}" style="height:50px;padding:0 16px;border-radius:6px;background:#6E8ACF;border:none;color:#0E0E11;font-size:15px;font-weight:550;cursor:pointer;font-family:inherit;">Save</button>
+      </div>
+    </sc-if>
+  </sc-if>
+
+  <sc-if value="{{ sheetVisible }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeSheet }}" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);"></div>
+    <div style="position:absolute;left:0;right:0;bottom:0;background:#1D1D22;border-radius:10px 10px 0 0;border-top:1px solid #34343C;padding-bottom:20px;">
+      <div style="display:flex;align-items:center;padding:14px 16px 6px;">
+        <div style="flex:1;font-size:15px;font-weight:550;">Fix cutout</div>
+        <button onClick="{{ closeSheet }}" style="width:36px;height:36px;background:none;border:none;color:#A0A0AC;font-size:16px;cursor:pointer;font-family:inherit;">✕</button>
+      </div>
+      <sc-for list="{{ tools }}" as="t" hint-placeholder-count="4">
+        <button onClick="{{ t.pick }}" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:12px 16px;background:none;border:none;border-top:1px solid #26262C;color:#E8E8EC;text-align:left;cursor:pointer;font-family:inherit;">
+          <span style="font-size:15px;font-weight:550;">{{ t.full }}</span>
+          <span style="font-size:12px;color:#6E6E7A;">{{ t.desc }}</span>
+        </button>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ dlOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeDl }}" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);"></div>
+    <div style="position:absolute;left:0;right:0;bottom:0;background:#1D1D22;border-radius:10px 10px 0 0;border-top:1px solid #34343C;padding:14px 16px 24px;display:flex;flex-direction:column;gap:12px;">
+      <div style="display:flex;align-items:center;">
+        <div style="flex:1;font-size:15px;font-weight:550;">Download</div>
+        <button onClick="{{ closeDl }}" style="width:36px;height:36px;background:none;border:none;color:#A0A0AC;font-size:16px;cursor:pointer;font-family:inherit;">✕</button>
+      </div>
+      <div style="font-size:13.5px;color:#A0A0AC;line-height:1.45;">Exports on black. The background you were viewing is just for checking.</div>
+      <div style="font-size:13.5px;color:#6E6E7A;">PNG · 2048 × 2507</div>
+      <button onClick="{{ confirmDl }}" style="height:50px;border-radius:6px;background:#6E8ACF;border:none;color:#0E0E11;font-size:15px;font-weight:550;cursor:pointer;font-family:inherit;">Download PNG</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ toastOn }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:96px;padding:8px 16px;border-radius:999px;background:#1D1D22;border:1px solid #34343C;font-size:13.5px;color:#E8E8EC;box-shadow:0 4px 16px rgba(0,0,0,0.4);white-space:nowrap;">{{ toast }}</div>
+  </sc-if>
+
+</div>
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;440px&quot;,&quot;height&quot;:&quot;920px&quot;},&quot;variant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dock&quot;,&quot;pill&quot;,&quot;sheet&quot;],&quot;default&quot;:&quot;dock&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Layout&quot;},&quot;defaultBg&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;black&quot;,&quot;grey&quot;,&quot;white&quot;],&quot;default&quot;:&quot;black&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Preview&quot;},&quot;processingMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1800,&quot;min&quot;:600,&quot;max&quot;:4000,&quot;step&quot;:200,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Simulation&quot;},&quot;revealMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:500,&quot;min&quot;:400,&quot;max&quot;:600,&quot;step&quot;:50,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Simulation&quot;}}">
+class Component extends DCLogic {
+  state = {screen:'upload', procStep:0, tool:null, bg:null, compare:0, trimFrac:0.9, trimApplied:false,
+    loupeX:0.68, loupeY:0.42, pw:300, ph:400, brushMode:'add', brushSize:28, toast:null,
+    sheetOpen:false, dlOpen:false, undoStack:[]};
+  constructor(props){
+    super(props);
+    this.previewRef = React.createRef();
+    this.brushRef = React.createRef();
+    this.timers = []; this.raf = null; this.strokes = []; this.cur = null;
+  }
+  componentWillUnmount(){ this.timers.forEach(clearTimeout); if(this.raf) cancelAnimationFrame(this.raf); }
+  componentDidUpdate(pp, ps){
+    if (this.state.tool === 'brush' && ps.tool !== 'brush') this.sizeCanvas();
+  }
+  t(fn, ms){ this.timers.push(setTimeout(fn, ms)); }
+  measure(){ const el = this.previewRef.current; return el ? el.getBoundingClientRect() : null; }
+  toastMsg(m){ clearTimeout(this._tt); this.setState({toast:m}); this._tt = setTimeout(()=>this.setState({toast:null}), 1800); }
+  variant(){ return this.props.variant ?? 'dock'; }
+  bgKey(){ return this.state.bg ?? this.props.defaultBg ?? 'black'; }
+  startUpload = () => {
+    const total = Number(this.props.processingMs ?? 1800);
+    this.setState({screen:'processing', procStep:0});
+    this.t(()=>this.setState({procStep:1}), total/2);
+    this.t(()=>{ this.setState({screen:'edit'}); this.reveal(); }, total);
+  };
+  reveal(){
+    const ms = Number(this.props.revealMs ?? 500);
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { this.setState({compare:0}); return; }
+    const start = performance.now();
+    this.setState({compare:1});
+    const step = (now) => {
+      const t = Math.min(1, (now-start)/ms);
+      const e = 1 - Math.pow(1-t, 3);
+      this.setState({compare:1-e});
+      if (t < 1) this.raf = requestAnimationFrame(step);
+    };
+    this.raf = requestAnimationFrame(step);
+  }
+  resetApp = () => { this.strokes = []; this.setState({screen:'upload', tool:null, compare:0, trimApplied:false, trimFrac:0.9, undoStack:[], sheetOpen:false, dlOpen:false}); };
+  clamp(v){ return Math.max(0, Math.min(1, v)); }
+  compareDown = (e) => { e.currentTarget.setPointerCapture(e.pointerId); };
+  compareMove = (e) => { if (e.buttons !== 1) return; const r = this.measure(); if (!r) return; this.setState({compare: this.clamp((e.clientX - r.left) / r.width)}); };
+  trimDown = (e) => { e.currentTarget.setPointerCapture(e.pointerId); };
+  trimMove = (e) => { if (e.buttons !== 1) return; const r = this.measure(); if (!r) return; this.setState({trimFrac: Math.max(0.2, Math.min(0.98, (e.clientY - r.top) / r.height))}); };
+  pickTool(k){
+    if (k === 'loupe') { const r = this.measure(); this.setState({tool:'loupe', sheetOpen:false, pw: r?r.width:300, ph: r?r.height:400}); return; }
+    this.setState({tool:k, sheetOpen:false});
+  }
+  closeTool = () => this.setState({tool:null});
+  applyTrim = () => {
+    this.setState({trimApplied:true, tool:null, undoStack:[...this.state.undoStack, 'trim']});
+    this.toastMsg('Trimmed below the base');
+  };
+  handleTap = (e) => {
+    const r = this.measure(); if (!r) return;
+    const fy = (e.clientY - r.top) / r.height;
+    if (!this.state.trimApplied && fy > 0.72) {
+      this.setState({trimApplied:true, undoStack:[...this.state.undoStack, 'tap']});
+      this.toastMsg('Region removed');
+    } else this.toastMsg('No stray region found there');
+  };
+  sizeCanvas(){
+    const cv = this.brushRef.current, r = this.measure(); if (!cv || !r) return;
+    if (cv.width !== Math.round(r.width)) { cv.width = Math.round(r.width); cv.height = Math.round(r.height); }
+    this.drawAll();
+  }
+  drawAll(){
+    const cv = this.brushRef.current; if (!cv) return;
+    const ctx = cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height);
+    for (const s of this.strokes) this.drawStroke(ctx, s);
+    if (this.cur) this.drawStroke(ctx, this.cur);
+  }
+  drawStroke(ctx, s){
+    ctx.strokeStyle = s.mode === 'add' ? 'rgba(110,138,207,0.45)' : 'rgba(201,106,106,0.45)';
+    ctx.lineWidth = s.size; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    s.pts.forEach((p,i) => i ? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1]));
+    if (s.pts.length === 1) ctx.lineTo(s.pts[0][0]+0.1, s.pts[0][1]);
+    ctx.stroke();
+  }
+  brushDown = (e) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const r = this.measure(); if (!r) return;
+    this.sizeCanvas();
+    this.cur = {mode:this.state.brushMode, size:this.state.brushSize, pts:[[e.clientX-r.left, e.clientY-r.top]]};
+    this.drawAll();
+  };
+  brushMove = (e) => {
+    if (!this.cur || e.buttons !== 1) return;
+    const r = this.measure(); if (!r) return;
+    this.cur.pts.push([e.clientX-r.left, e.clientY-r.top]);
+    this.drawAll();
+  };
+  brushUp = () => {
+    if (!this.cur) return;
+    this.strokes.push(this.cur); this.cur = null;
+    this.setState({undoStack:[...this.state.undoStack, 'stroke']});
+  };
+  loupeDown = (e) => { e.currentTarget.setPointerCapture(e.pointerId); };
+  loupeMove = (e) => {
+    if (e.buttons !== 1) return;
+    const r = this.measure(); if (!r) return;
+    this.setState({loupeX: this.clamp((e.clientX-r.left)/r.width), loupeY: this.clamp((e.clientY-r.top)/r.height), pw:r.width, ph:r.height});
+  };
+  undo = () => {
+    const st = [...this.state.undoStack];
+    const a = st.pop();
+    if (!a) { this.toastMsg('Nothing to undo'); return; }
+    if (a === 'stroke') { this.strokes.pop(); this.drawAll(); }
+    else this.setState({trimApplied:false});
+    this.setState({undoStack:st});
+    this.toastMsg('Undone');
+  };
+  openDl = () => this.setState({dlOpen:true});
+  closeDl = () => this.setState({dlOpen:false});
+  confirmDl = () => { this.setState({dlOpen:false}); this.toastMsg('Saved to Photos'); };
+  openSheet = () => this.setState({sheetOpen:true});
+  closeSheet = () => this.setState({sheetOpen:false});
+  renderVals(){
+    const s = this.state, v = this.variant();
+    const bgMap = {black:'#000000', grey:'#777777', white:'#FFFFFF'};
+    const bgKey = this.bgKey();
+    const tool = s.tool;
+    const toolDefs = [
+      {key:'trim',  label:'Trim',   full:'Trim line',        desc:'Cut away the pot or handle in one drag'},
+      {key:'tap',   label:'Remove', full:'Tap to remove',    desc:'Delete a stray object with one tap'},
+      {key:'brush', label:'Brush',  full:'Add / erase brush',desc:'Fix fine details like spears and banners'},
+      {key:'loupe', label:'Edges',  full:'Edge check',       desc:'Inspect the cutout edge up close'},
+    ];
+    const tools = toolDefs.map(d => ({
+      ...d,
+      active: tool === d.key,
+      pick: () => this.pickTool(d.key),
+      border: tool === d.key ? '#6E8ACF' : '#26262C',
+      color: tool === d.key ? '#6E8ACF' : '#E8E8EC',
+      pillBg: tool === d.key ? '#2A2A31' : 'transparent',
+    }));
+    const bgOpts = ['black','grey','white'].map(k => ({
+      color: bgMap[k],
+      ring: k === bgKey ? '#6E8ACF' : '#34343C',
+      pick: () => this.setState({bg:k}),
+    }));
+    const brushSizes = [{d:6,v:16},{d:10,v:28},{d:14,v:44}].map(o => ({
+      dot: o.d, ring: s.brushSize === o.v ? '#6E8ACF' : '#34343C', pick: () => this.setState({brushSize:o.v}),
+    }));
+    const hints = {trim:'Drag the line — everything below it goes', tap:'Tap a leftover object to remove it', brush:'Paint over the edge to add or erase', loupe:'Drag the loupe along an edge'};
+    const pw = s.pw, ph = s.ph;
+    const loupeOuter = {position:'absolute', width:140, height:140, borderRadius:'50%', overflow:'hidden',
+      left: s.loupeX*pw-70, top: s.loupeY*ph-70, background:bgMap[bgKey], boxShadow:'0 8px 24px rgba(0,0,0,0.5)',
+      touchAction:'none', cursor:'grab'};
+    const loupeInner = {position:'absolute', width:pw*3, height:ph*3, left:70-s.loupeX*pw*3, top:70-s.loupeY*ph*3};
+    return {
+      isUpload: s.screen === 'upload', isProcessing: s.screen === 'processing', isEdit: s.screen === 'edit',
+      isDock: v === 'dock', isPill: v === 'pill', isSheet: v === 'sheet',
+      showTopSave: v !== 'sheet',
+      procLabel: s.procStep === 0 ? 'Removing background…' : 'Correcting lighting…',
+      bgColor: bgMap[bgKey], bgOpts, tools, brushSizes,
+      cutoutSrc: s.trimApplied ? 'assets/cutout-trimmed-crop.png' : 'assets/cutout-full-crop.png',
+      cutoutClip: tool === 'trim' ? `inset(0 0 ${((1-s.trimFrac)*100).toFixed(2)}% 0)` : 'none',
+      showDivider: s.screen === 'edit' && tool === null,
+      showBeforeChip: s.compare > 0.15,
+      dividerLeft: (s.compare*100).toFixed(2)+'%',
+      beforeClip: `inset(0 ${((1-s.compare)*100).toFixed(2)}% 0 0)`,
+      isTrim: tool==='trim', isTap: tool==='tap', isBrush: tool==='brush', isLoupe: tool==='loupe',
+      trimTop: (s.trimFrac*100).toFixed(2)+'%',
+      toolStripOn: tool !== null,
+      toolHint: hints[tool] ?? '',
+      toolPrimary: tool === 'trim' ? this.applyTrim : this.closeTool,
+      toolPrimaryLabel: tool === 'trim' ? 'Apply' : 'Done',
+      pillVisible: v === 'pill' && s.screen === 'edit' && tool === null,
+      setAdd: () => this.setState({brushMode:'add'}),
+      setErase: () => this.setState({brushMode:'erase'}),
+      addBg: s.brushMode==='add' ? '#2A2A31' : 'transparent', addColor: s.brushMode==='add' ? '#6E8ACF' : '#A0A0AC',
+      eraseBg: s.brushMode==='erase' ? '#2A2A31' : 'transparent', eraseColor: s.brushMode==='erase' ? '#C96A6A' : '#A0A0AC',
+      sheetVisible: v === 'sheet' && s.sheetOpen,
+      dlOpen: s.dlOpen, toastOn: s.toast !== null, toast: s.toast ?? '',
+      startUpload: this.startUpload, resetApp: this.resetApp,
+      compareDown: this.compareDown, compareMove: this.compareMove,
+      trimDown: this.trimDown, trimMove: this.trimMove,
+      handleTap: this.handleTap, brushDown: this.brushDown, brushMove: this.brushMove, brushUp: this.brushUp,
+      loupeDown: this.loupeDown, loupeMove: this.loupeMove, loupeOuter, loupeInner,
+      closeTool: this.closeTool, undo: this.undo,
+      openDl: this.openDl, closeDl: this.closeDl, confirmDl: this.confirmDl,
+      openSheet: this.openSheet, closeSheet: this.closeSheet,
+      previewRef: this.previewRef, brushRef: this.brushRef,
+    };
+  }
+}
+</script>
+</body>
+</html>
