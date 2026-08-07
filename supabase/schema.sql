@@ -19,3 +19,9 @@ create table if not exists images (
 create index if not exists images_user_id_idx on images (user_id, created_at desc);
 
 alter table images enable row level security;
+
+-- Access is explicit ("Automatically expose new tables" is disabled in the
+-- project settings). Only the Worker's service role touches this table; the
+-- public Data API roles get nothing.
+revoke all on table images from anon, authenticated;
+grant select, insert, update on table images to service_role;
