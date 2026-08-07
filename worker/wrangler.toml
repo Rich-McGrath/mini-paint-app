@@ -1,14 +1,26 @@
-# Studioshot API — Cloudflare Worker.
+# Studioshot — one Worker serves both the built SPA (static assets) and the API
+# under /api. One deploy, no CORS, uploads stream through the Worker into R2.
+#
 # Secrets (never in this file, set via `wrangler secret put`):
 #   FAL_KEY               fal.ai queue API key (segmentation)
 #   SUPABASE_URL          Supabase project URL
 #   SUPABASE_SERVICE_KEY  Supabase service-role key (server-only)
 
-name = "studioshot-api"
+name = "studioshot"
 main = "src/index.ts"
 compatibility_date = "2026-08-01"
 
-# M1: R2 buckets (originals / masks / exports) get bound here.
-# [[r2_buckets]]
-# binding = "IMAGES"
-# bucket_name = "studioshot-images"
+[assets]
+directory = "../app/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "studioshot-images"
+
+[vars]
+# "mock" walks the skeleton without credentials; set to "fal" once FAL_KEY is in place.
+SEGMENTATION_PROVIDER = "mock"
+# FAL_MODEL = "fal-ai/birefnet/v2"   # M2 bake-off may override

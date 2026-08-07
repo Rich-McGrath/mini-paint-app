@@ -35,3 +35,18 @@ img {
   max-width: 100%;
   display: block;
 }
+
+@keyframes ss-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [style*='ss-bar'] {
+    animation: none !important;
+  }
+}
