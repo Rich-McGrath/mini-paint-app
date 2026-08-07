@@ -17,7 +17,7 @@ for each. All four are cheap to reverse if overturned; none is silently final.
 | Open decision | Default adopted here | Why | Cost to reverse |
 |---|---|---|---|
 | **Name** | "Studioshot" — the name both design mockups already use | Mockups, copy and domain placeholder (`studioshot.app`) are already written under it | Find-and-replace before launch |
-| **Stack** | Cloudflare: Pages + Workers + R2 + D1 | R2 is already the stated storage preference; zero egress fees serve the "bandwidth is the main cost" constraint; and the owner's previous app already runs this shape (Cloudflare Worker with server-only vendor keys), so the patterns and account exist | Frontend is a plain Vite SPA and the API is small — portable |
+| **Stack** | Cloudflare (Pages + Workers + R2) + Supabase (Postgres + Auth) | R2 is already the stated storage preference and zero egress fees serve the "bandwidth is the main cost" constraint; the owner's previous app already runs exactly this combination (Cloudflare Worker with server-only vendor keys, Supabase alongside), so accounts, patterns and plumbing all exist. Supabase Auth covers optional sign-in and day-one username reservation without building auth | Frontend is a plain Vite SPA and the API is small — portable |
 | **Segmentation API** | fal.ai queue API first — this is the existing plumbing from the previous project (`FAL_KEY`, server-only, queue-based calls from a Worker) — behind a `SegmentationProvider` interface; bake off fal-hosted matting models against the seven bad photos, with one commercial API as a control | Reusing working plumbing is days saved; fal hosts the strongest open matting models pay-per-use; the interface still makes the vendor a config change if quality disappoints | None — the interface is the point |
 | **Value view in v1** | Out | WIPicle ships it; SPEC §10 says "minor feature at most". Nothing else depends on it | Additive later; the L\* maths is preserved either way |
 
@@ -61,12 +61,14 @@ Phone browser (SPA, dark-only, phone-first)
   │  direct-to-R2 upload (presigned URL from the Worker)
   ▼
 Cloudflare Worker (Hono)
-  ├── POST /uploads        → presigned R2 PUT, creates image record (D1)
+  ├── POST /uploads        → presigned R2 PUT, creates image record (Supabase Postgres)
   ├── POST /segment        → SegmentationProvider adapter → fal.ai queue API → mask to R2
   ├── GET  /images/:id     → record + signed URLs
   └── POST /masks/:id      → store user-corrected mask (the flywheel)
 R2 buckets: originals (short retention) · downscaled+masks (kept) · exports (transient)
-D1: images(id, user_id, kit_tag, created_at, …) — flat, one image = one miniature = one kit tag
+Supabase: Postgres — images(id, user_id, kit_tag, created_at, …), flat, one image = one
+  miniature = one kit tag; Auth — optional sign-in, anonymous user IDs for signed-out use,
+  usernames reserved at signup (both spec day-one requirements)
 ```
 
 Division of labour, and why:
@@ -155,8 +157,8 @@ there is always a demoable build as NOVA approaches.
 ### M4 — NOVA hardening *(days 19–22)*
 - Real-device passes (iOS Safari + Android Chrome), slow-network behaviour, error states,
   minimal landing page from the `Studioshot Editor.dc.html` hero (2a split or 2b slider)
-- Optional sign-in (keep history) with username reservation; anonymous user ID stored against
-  every image from day one regardless
+- Optional sign-in (keep history) via Supabase Auth with username reservation; anonymous user
+  ID stored against every image from day one regardless
 - **Exit:** the owner can hand their phone to a stranger at NOVA and watch them succeed.
 
 Deliberately after NOVA: kit tagging UI (v2 groundwork), account management beyond sign-in,
