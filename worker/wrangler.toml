@@ -21,6 +21,8 @@ binding = "IMAGES"
 bucket_name = "studioshot-images"
 
 [vars]
-# "mock" walks the skeleton without credentials; set to "fal" once FAL_KEY is in place.
-SEGMENTATION_PROVIDER = "mock"
+# Production default. Set to "mock" for credential-free local development —
+# the mock returns the photo uncut, which also leaves lighting inert (no
+# background/subject split to correct against).
+SEGMENTATION_PROVIDER = "fal"
 # FAL_MODEL = "fal-ai/birefnet/v2"   # M2 bake-off may override
