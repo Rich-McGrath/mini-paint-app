@@ -39,3 +39,8 @@ export async function fetchCutout(id: string): Promise<Blob> {
   const res = await ok(await fetch(`/api/images/${id}/cutout`));
   return res.blob();
 }
+
+export async function fetchOriginal(id: string): Promise<Blob> {
+  const res = await ok(await fetch(`/api/images/${id}/original`));
+  return res.blob();
+}

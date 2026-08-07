@@ -9,3 +9,4 @@ dist/
 # test byproducts (see README)
 fixtures.js
 contact-sheet.png
+test-output/
