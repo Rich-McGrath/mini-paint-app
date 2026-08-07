@@ -24,6 +24,13 @@ function provider(env: Env): SegmentationProvider {
 
 const app = new Hono<{ Bindings: Env }>().basePath('/api');
 
+/* Surface the real failure: log it for `wrangler tail` and return the message
+ * so the client can show something actionable instead of a bare 500. */
+app.onError((err, c) => {
+  console.error(`${c.req.method} ${c.req.path}:`, err);
+  return c.json({ error: err instanceof Error ? err.message : 'internal error' }, 500);
+});
+
 app.get('/health', (c) => c.json({ ok: true, service: 'studioshot-api' }));
 
 /* Upload the original. Body is the raw image; the anonymous or signed-in user id
