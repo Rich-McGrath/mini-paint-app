@@ -25,3 +25,15 @@ alter table images enable row level security;
 -- public Data API roles get nothing.
 revoke all on table images from anon, authenticated;
 grant select, insert, update on table images to service_role;
+
+-- Optional accounts: username reserved at sign-up, unique forever (SPEC §5).
+create table if not exists usernames (
+  user_id uuid primary key,              -- Supabase Auth user id
+  username text not null unique
+    check (username ~ '^[a-zA-Z0-9_]{3,20}$'),
+  created_at timestamptz not null default now()
+);
+
+alter table usernames enable row level security;
+revoke all on table usernames from anon, authenticated;
+grant select, insert, update on table usernames to service_role;

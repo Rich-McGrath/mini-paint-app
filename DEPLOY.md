@@ -26,6 +26,24 @@ repo's `.nvmrc` selects it automatically via `nvm use`. After switching Node ver
    `SEGMENTATION_PROVIDER = "fal"` (leave `"mock"` for a credential-free walking skeleton;
    the mock returns the photo uncut).
 
+## Optional sign-in (magic link)
+
+Anonymous use works with none of this. To enable "Sign in to keep your photos":
+
+1. Supabase dashboard → **Authentication → Sign In / Up** — ensure the **Email** provider is
+   enabled (magic links are its default).
+2. **Authentication → URL Configuration** — set the Site URL to the deployed app
+   (e.g. `https://studioshot.<subdomain>.workers.dev`), so magic links redirect back to it.
+3. Create `app/.env.production` (gitignored) with the **client-safe** values:
+   ```
+   VITE_SUPABASE_URL=https://<ref>.supabase.co
+   VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+   ```
+   This is the publishable key — never the secret one. When these are absent the sign-in UI
+   is hidden entirely and the app is anonymous-only.
+4. Rebuild and deploy. Username reservation needs the `usernames` table — rerun
+   `supabase/schema.sql` if the project predates it.
+
 ## Every deploy
 
 ```sh

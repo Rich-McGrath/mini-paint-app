@@ -18,6 +18,7 @@ export interface ImageRecord {
 }
 
 const memory = new Map<string, ImageRecord>();
+const memoryUsernames = new Map<string, string>(); // user_id → username
 
 function configured(env: Env): boolean {
   return Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY);
@@ -62,4 +63,38 @@ export async function updateImage(env: Env, id: string, patch: Partial<ImageReco
     method: 'PATCH',
     body: JSON.stringify(patch)
   });
+}
+
+export async function getUsername(env: Env, userId: string): Promise<string | null> {
+  if (!configured(env)) return memoryUsernames.get(userId) ?? null;
+  const res = await rest(env, `usernames?user_id=eq.${encodeURIComponent(userId)}`, {
+    method: 'GET'
+  });
+  const rows = (await res.json()) as Array<{ username: string }>;
+  return rows[0]?.username ?? null;
+}
+
+/** Reserve (or change) the username. Returns false when the name is taken. */
+export async function claimUsername(env: Env, userId: string, username: string): Promise<boolean> {
+  if (!configured(env)) {
+    for (const [uid, name] of memoryUsernames) {
+      if (name.toLowerCase() === username.toLowerCase() && uid !== userId) return false;
+    }
+    memoryUsernames.set(userId, username);
+    return true;
+  }
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/usernames?on_conflict=user_id`, {
+    method: 'POST',
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY!,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates'
+    },
+    body: JSON.stringify({ user_id: userId, username })
+  });
+  if (res.ok) return true;
+  const body = await res.text();
+  if (res.status === 409 || body.includes('23505')) return false; // unique violation: taken
+  throw new Error(`supabase ${res.status}: ${body}`);
 }

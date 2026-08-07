@@ -1,8 +1,18 @@
 import './styles/base.css';
-import { fetchCutout, fetchOriginal, segmentImage, uploadImage, uploadMask } from './lib/api';
+import {
+  claimUsername,
+  fetchCutout,
+  fetchMe,
+  fetchOriginal,
+  segmentImage,
+  uploadImage,
+  uploadMask,
+  type Me
+} from './lib/api';
 import { alphaBBox, padBBox, type BBox } from './lib/cutout';
 import { replayOps, type Op } from './lib/editor';
 import { correctLighting } from './lib/lighting';
+import { adoptSessionFromUrl, authAvailable, requestMagicLink, signOut } from './lib/session';
 
 /* M3: the correction editor (design/EditorPhone.dc.html, dock variant).
  * Cutout shown immediately; correction is optional polish, never a gate.
@@ -50,6 +60,9 @@ interface State {
   reveal: boolean; // play the before/after reveal on next edit render
   sheet: boolean; // download sheet
   busy: boolean;
+  me: Me | null; // signed-in state (null = anonymous)
+  authSheet: 'signin' | 'sent' | 'username' | null;
+  lastFile: File | null; // for the error screen's retry
 }
 
 const state: State = {
@@ -63,7 +76,10 @@ const state: State = {
   trimFrac: 0.9,
   reveal: false,
   sheet: false,
-  busy: false
+  busy: false,
+  me: null,
+  authSheet: null,
+  lastFile: null
 };
 
 function set(patch: Partial<State>): void {
@@ -86,20 +102,39 @@ function toast(message: string): void {
 /* ---------- processing ---------- */
 
 async function processFile(file: File): Promise<void> {
-  if (!file.type.startsWith('image/')) {
+  if (!file.type.startsWith('image/') && !/\.(heic|heif|jpe?g|png|webp)$/i.test(file.name)) {
     set({ screen: 'error', message: 'That file is not an image.' });
     return;
   }
-  set({ screen: 'processing', message: 'Removing background…' });
+  if (!navigator.onLine) {
+    set({ screen: 'error', message: "You're offline. Reconnect and try again." });
+    return;
+  }
+  state.lastFile = file;
+  set({ screen: 'processing', message: 'Preparing your photo…' });
+  // Honest patience copy for slow queues and cellular — cleared on completion.
+  const staged = [
+    setTimeout(() => {
+      if (state.screen === 'processing') set({ message: 'Removing background…' });
+    }, 1500),
+    setTimeout(() => {
+      if (state.screen === 'processing') set({ message: 'Still working — busy queue…' });
+    }, 12000),
+    setTimeout(() => {
+      if (state.screen === 'processing') set({ message: 'Nearly there…' });
+    }, 30000)
+  ];
   try {
     const id = await uploadImage(file);
     await segmentImage(id);
+    staged.forEach(clearTimeout);
     set({ message: 'Correcting lighting…' });
     const [cutout, original] = await Promise.all([fetchCutout(id), fetchOriginal(id)]);
     const session = await openSession(id, file.name, original, cutout);
     recompute(session);
     set({ screen: 'edit', session, tool: null, reveal: true, sheet: false });
   } catch (err) {
+    staged.forEach(clearTimeout);
     set({
       screen: 'error',
       message: err instanceof Error ? err.message : 'Something went wrong. Please try again.'
@@ -353,12 +388,23 @@ function renderUpload(): void {
             ? `<p data-role="error" style="margin:0;font-size:var(--text-sm);color:var(--danger);">${escapeHtml(state.message)}</p>`
             : ''
         }
-        <button data-action="choose" style="margin-top:var(--space-4);height:50px;padding:0 var(--space-8);
-          border-radius:var(--radius-control);background:var(--accent);border:none;color:var(--canvas);
-          font-size:var(--text-md);font-weight:var(--weight-medium);">Choose photo</button>
+        <div style="display:flex;gap:var(--space-2);margin-top:var(--space-4);">
+          ${
+            state.screen === 'error' && state.lastFile
+              ? `<button data-action="retry" style="height:50px;padding:0 var(--space-6);
+                  border-radius:var(--radius-control);background:var(--surface);border:1px solid var(--border);
+                  color:var(--text-primary);font-size:var(--text-md);font-weight:var(--weight-medium);">Retry</button>`
+              : ''
+          }
+          <button data-action="choose" style="height:50px;padding:0 var(--space-8);
+            border-radius:var(--radius-control);background:var(--accent);border:none;color:var(--canvas);
+            font-size:var(--text-md);font-weight:var(--weight-medium);">Choose photo</button>
+        </div>
         <p style="margin:0;font-size:var(--text-xs);color:var(--text-tertiary);">Your original is never modified</p>
       </main>
-      <footer style="padding:0 var(--space-4) var(--space-6);text-align:center;">
+      <footer style="padding:0 var(--space-4) var(--space-6);display:flex;flex-direction:column;
+        gap:var(--space-2);align-items:center;">
+        ${accountLine()}
         <a href="/terms.html" style="font-size:var(--text-xs);color:var(--text-tertiary);">Terms — how your images are used</a>
       </footer>
     </div>`)
@@ -370,6 +416,107 @@ function renderUpload(): void {
     if (input.files?.[0]) void processFile(input.files[0]);
   };
   app!.querySelector('[data-action=choose]')?.addEventListener('click', () => input.click());
+  app!.querySelector('[data-action=retry]')?.addEventListener('click', () => {
+    if (state.lastFile) void processFile(state.lastFile);
+  });
+  app!.querySelector('[data-action=signin]')?.addEventListener('click', () =>
+    set({ authSheet: 'signin' })
+  );
+  app!.querySelector('[data-action=signout]')?.addEventListener('click', () => {
+    signOut();
+    set({ me: null });
+    toast('Signed out');
+  });
+  app!.querySelector('[data-action=pick-username]')?.addEventListener('click', () =>
+    set({ authSheet: 'username' })
+  );
+  if (state.authSheet) renderAuthSheet();
+}
+
+function accountLine(): string {
+  if (!authAvailable) return '';
+  if (!state.me) {
+    return `<button data-action="signin" style="background:none;border:none;padding:4px 8px;
+      font-size:var(--text-xs);color:var(--text-secondary);text-decoration:underline;">
+      Sign in to keep your photos</button>`;
+  }
+  const who = state.me.username ?? state.me.email ?? 'signed in';
+  const pick = state.me.username
+    ? ''
+    : `<button data-action="pick-username" style="background:none;border:none;padding:4px;
+        font-size:var(--text-xs);color:var(--accent);text-decoration:underline;">Choose a username</button>`;
+  return `<div style="display:flex;gap:var(--space-2);align-items:center;font-size:var(--text-xs);
+    color:var(--text-secondary);">
+    <span>${escapeHtml(who)}</span>${pick}
+    <button data-action="signout" style="background:none;border:none;padding:4px;
+      font-size:var(--text-xs);color:var(--text-tertiary);text-decoration:underline;">Sign out</button>
+  </div>`;
+}
+
+function renderAuthSheet(): void {
+  const kind = state.authSheet!;
+  const body =
+    kind === 'signin'
+      ? `<div style="font-size:var(--text-sm);color:var(--text-secondary);line-height:1.45;">
+          We'll email you a sign-in link. Your photos and corrections stay with your account.</div>
+        <input data-role="email" type="email" inputmode="email" autocomplete="email"
+          placeholder="you@example.com" style="height:50px;padding:0 var(--space-3);
+          border-radius:var(--radius-control);background:var(--canvas);border:1px solid var(--border-strong);
+          color:var(--text-primary);font-size:var(--text-md);font-family:inherit;" />
+        <button data-action="send-link" style="height:50px;border-radius:var(--radius-control);
+          background:var(--accent);border:none;color:var(--canvas);font-size:var(--text-md);
+          font-weight:var(--weight-medium);">Email me a link</button>`
+      : kind === 'sent'
+        ? `<div style="font-size:var(--text-sm);color:var(--text-secondary);line-height:1.45;">
+            Check your email and open the link on this device. You can keep using Studioshot meanwhile.</div>`
+        : `<div style="font-size:var(--text-sm);color:var(--text-secondary);line-height:1.45;">
+            3–20 characters: letters, numbers, underscores. Yours forever.</div>
+          <input data-role="username" type="text" autocomplete="off" autocapitalize="off"
+            placeholder="username" style="height:50px;padding:0 var(--space-3);
+            border-radius:var(--radius-control);background:var(--canvas);border:1px solid var(--border-strong);
+            color:var(--text-primary);font-size:var(--text-md);font-family:inherit;" />
+          <button data-action="claim" style="height:50px;border-radius:var(--radius-control);
+            background:var(--accent);border:none;color:var(--canvas);font-size:var(--text-md);
+            font-weight:var(--weight-medium);">Claim it</button>`;
+  const titles = { signin: 'Sign in', sent: 'Link sent', username: 'Choose a username' } as const;
+  const sheet = html(`<div style="position:fixed;inset:0;z-index:40;">
+    <div data-action="close" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);"></div>
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface-raised);
+      border-radius:var(--radius-card) var(--radius-card) 0 0;border-top:1px solid var(--border-strong);
+      padding:14px 16px 24px;display:flex;flex-direction:column;gap:var(--space-3);">
+      <div style="display:flex;align-items:center;">
+        <div style="flex:1;font-size:var(--text-md);font-weight:var(--weight-medium);">${titles[kind]}</div>
+        <button data-action="close" aria-label="Close" style="width:36px;height:36px;background:none;
+          border:none;color:var(--text-secondary);font-size:16px;">✕</button>
+      </div>
+      ${body}
+    </div>
+  </div>`);
+  sheet.querySelectorAll('[data-action=close]').forEach((el) =>
+    el.addEventListener('click', () => set({ authSheet: null }))
+  );
+  sheet.querySelector('[data-action=send-link]')?.addEventListener('click', () => {
+    const email = sheet.querySelector<HTMLInputElement>('[data-role=email]')?.value.trim();
+    if (!email || !email.includes('@')) {
+      toast('Enter your email address');
+      return;
+    }
+    requestMagicLink(email)
+      .then(() => set({ authSheet: 'sent' }))
+      .catch((e: Error) => toast(e.message));
+  });
+  sheet.querySelector('[data-action=claim]')?.addEventListener('click', () => {
+    const name = sheet.querySelector<HTMLInputElement>('[data-role=username]')?.value.trim();
+    if (!name) return;
+    claimUsername(name)
+      .then(() => {
+        if (state.me) state.me.username = name;
+        set({ authSheet: null });
+        toast(`You're ${name}`);
+      })
+      .catch((e: Error) => toast(e.message));
+  });
+  app!.append(sheet);
 }
 
 function renderProcessing(): void {
@@ -835,4 +982,15 @@ function escapeHtml(str: string): string {
   return str.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
+/* ---------- boot ---------- */
+
+const adopted = adoptSessionFromUrl(); // returning from a magic link?
 render();
+if (authAvailable) {
+  void fetchMe().then((me) => {
+    if (!me) return;
+    const firstSignIn = adopted && !me.username;
+    set({ me, authSheet: firstSignIn ? 'username' : state.authSheet });
+    if (adopted) toast('Signed in');
+  });
+}

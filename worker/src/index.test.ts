@@ -108,4 +108,37 @@ describe('walking skeleton', () => {
     const res = await app.request('/api/health', {}, env());
     expect(res.status).toBe(200);
   });
+
+  it('requires sign-in for /me and /username', async () => {
+    const e = env();
+    expect((await app.request('/api/me', {}, e)).status).toBe(401);
+    const claim = await app.request(
+      '/api/username',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: 'painter' })
+      },
+      e
+    );
+    expect(claim.status).toBe(401);
+  });
+
+  it('still accepts anonymous uploads with an invalid bearer token', async () => {
+    const e = env();
+    const res = await app.request(
+      '/api/images',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/jpeg',
+          'x-user-id': 'anon-1',
+          authorization: 'Bearer not-a-real-token'
+        },
+        body: PHOTO.slice()
+      },
+      e
+    );
+    expect(res.status).toBe(201); // no Supabase configured → auth resolves null → anon id
+  });
 });

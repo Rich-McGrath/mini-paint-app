@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { createImage, getImage, updateImage } from './db';
+import { resolveUser } from './auth';
+import { claimUsername, createImage, getImage, getUsername, updateImage } from './db';
 import { FalProvider, MockProvider, type SegmentationProvider } from './segmentation';
 
 export type Env = {
@@ -42,7 +43,9 @@ app.post('/images', async (c) => {
   }
   const length = Number(c.req.header('content-length') ?? '0');
   if (length > MAX_UPLOAD_BYTES) return c.json({ error: 'image too large (20MB max)' }, 413);
-  const userId = c.req.header('x-user-id');
+  // Signed-in id when a valid token is presented; anonymous id otherwise.
+  const authed = await resolveUser(c.env, c.req.header('authorization'));
+  const userId = authed?.id ?? c.req.header('x-user-id');
   if (!userId) return c.json({ error: 'missing x-user-id header' }, 400);
 
   const bytes = new Uint8Array(await c.req.arrayBuffer());
@@ -136,6 +139,26 @@ app.post('/images/:id/mask', async (c) => {
   await c.env.IMAGES.put(maskKey, bytes, { httpMetadata: { contentType: 'image/png' } });
   await updateImage(c.env, id, { corrected_mask_key: maskKey, status: 'corrected' });
   return c.json({ id, status: 'corrected' });
+});
+
+/* Signed-in state for the client to restore on load. */
+app.get('/me', async (c) => {
+  const user = await resolveUser(c.env, c.req.header('authorization'));
+  if (!user) return c.json({ error: 'not signed in' }, 401);
+  return c.json({ userId: user.id, email: user.email, username: await getUsername(c.env, user.id) });
+});
+
+/* Username reservation (SPEC §5): unique forever, claimable at sign-up. */
+app.post('/username', async (c) => {
+  const user = await resolveUser(c.env, c.req.header('authorization'));
+  if (!user) return c.json({ error: 'sign in first' }, 401);
+  const { username } = (await c.req.json().catch(() => ({}))) as { username?: string };
+  if (!username || !/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+    return c.json({ error: 'usernames are 3–20 letters, numbers or underscores' }, 400);
+  }
+  const claimed = await claimUsername(c.env, user.id, username);
+  if (!claimed) return c.json({ error: 'that username is taken' }, 409);
+  return c.json({ username });
 });
 
 export default app;
