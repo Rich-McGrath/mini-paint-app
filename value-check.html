@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Value Check — the greyscale test, automated</title>
+<style>
+:root{
+  --bg:#12131a; --bg2:#191b25; --bg3:#20222e; --line:#2c2f3d; --line2:#3a3e50;
+  --tx:#e6e8f0; --tx2:#a8adc0; --tx3:#767c92;
+  --acc:#7c9cff; --acc2:#5f7fe8;
+  --ok:#5fd18a; --warn:#f2c14e; --bad:#ef7b7b;
+  --r:10px; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+:root[data-theme="light"]{
+  --bg:#f6f7fa; --bg2:#ffffff; --bg3:#eef0f6; --line:#dfe2ec; --line2:#c8cddc;
+  --tx:#1b1e28; --tx2:#565d73; --tx3:#858ca3;
+  --acc:#3b5bdb; --acc2:#2f49b8;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;line-height:1.25;font-weight:650;letter-spacing:-.01em}
+p{margin:0 0 .85em}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px 80px}
+header.top{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.top-in{max-width:1080px;margin:0 auto;padding:13px 20px;display:flex;flex-wrap:wrap;align-items:baseline;gap:12px}
+.brand{font-size:16.5px;font-weight:700}
+.brand span{color:var(--tx3);font-weight:500}
+.top-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.btn{background:var(--bg3);border:1px solid var(--line2);color:var(--tx2);border-radius:8px;padding:6px 11px;font-size:12.5px;cursor:pointer;font-family:inherit}
+.btn:hover{border-color:var(--acc);color:var(--tx)}
+.btn.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn:disabled{opacity:.4;cursor:default}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--tx3);margin-bottom:9px}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.lead{font-size:15.5px;color:var(--tx2);max-width:76ch}
+.small{font-size:13px}
+.muted{color:var(--tx3)}
+.grid{display:grid;gap:14px}
+hr.sep{border:0;border-top:1px solid var(--line);margin:30px 0}
+
+/* drop zone */
+#drop{border:2px dashed var(--line2);border-radius:14px;padding:44px 22px;text-align:center;cursor:pointer;transition:.15s;margin-top:24px;background:var(--bg2)}
+#drop:hover,#drop.over{border-color:var(--acc);background:var(--bg3)}
+#drop h3{font-size:17px;margin-bottom:6px}
+
+/* workspace */
+#work{display:none}
+.panes{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}
+.pane{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);padding:12px;min-width:0}
+.pane h4{font-size:12.5px;color:var(--tx3);margin-bottom:9px;text-transform:uppercase;letter-spacing:.1em}
+.canvas-host{position:relative;line-height:0;border-radius:7px;overflow:hidden;background:var(--bg3)}
+.canvas-host canvas{width:100%;height:auto;display:block}
+#overlay{position:absolute;inset:0;cursor:crosshair}
+.toolbar{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:14px 0 0}
+.toolbar .sp{width:1px;height:20px;background:var(--line2);margin:0 3px}
+label.rng{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--tx2)}
+input[type=range]{accent-color:var(--acc);width:96px}
+
+/* stats */
+.stat{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.stat .n{font-size:26px;font-weight:700;letter-spacing:-.03em;line-height:1.15;font-family:var(--mono)}
+.stat .l{font-size:11.5px;color:var(--tx3);margin-top:3px;line-height:1.4}
+.g4{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.finding{display:flex;gap:11px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line);font-size:13.8px;line-height:1.55}
+.finding:last-child{border-bottom:0}
+.finding .ico{flex:none;width:19px;height:19px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:800;margin-top:2px}
+.finding b{color:var(--tx)}
+.i-ok{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--ok)}
+.i-warn{background:color-mix(in srgb,var(--warn) 22%,transparent);color:var(--warn)}
+.i-bad{background:color-mix(in srgb,var(--bad) 22%,transparent);color:var(--bad)}
+.i-cam{background:color-mix(in srgb,var(--acc) 22%,transparent);color:var(--acc)}
+.callout{border-left:3px solid var(--acc);background:var(--bg2);padding:14px 17px;border-radius:0 var(--r) var(--r) 0;margin:16px 0}
+.callout.warn{border-left-color:var(--warn)}
+.callout h4{font-size:13.5px;margin-bottom:5px}
+ol.qs{counter-reset:s;list-style:none;padding:0;margin:0}
+ol.qs li{counter-increment:s;position:relative;padding-left:36px;margin-bottom:13px;font-size:13.8px}
+ol.qs li::before{content:counter(s);position:absolute;left:0;top:0;width:24px;height:24px;border-radius:50%;background:var(--bg3);border:1px solid var(--line2);color:var(--tx2);display:grid;place-items:center;font-size:11.5px;font-weight:700}
+ol.qs li b{display:block;color:var(--tx);margin-bottom:2px}
+.strip{display:flex;gap:8px;overflow-x:auto;padding:4px 0}
+.strip .it{flex:none;width:92px;text-align:center}
+.strip .it img{width:92px;height:92px;object-fit:cover;border-radius:7px;border:1px solid var(--line2);display:block}
+.strip .it .cap{font-size:10.5px;color:var(--tx3);margin-top:4px;font-family:var(--mono)}
+.samples{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px;margin-top:12px}
+.samp{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:9px;cursor:pointer;text-align:center}
+.samp:hover{border-color:var(--acc)}
+.samp canvas{width:100%;border-radius:6px;display:block;background:#000}
+.samp .t{font-size:11.5px;color:var(--tx2);margin-top:7px;font-weight:600}
+.samp .d{font-size:10.5px;color:var(--tx3);line-height:1.35;margin-top:2px}
+@media(max-width:720px){.panes{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand">Value Check <span>· the greyscale test, automated</span></div>
+    <div class="top-actions">
+      <button class="btn" id="themeBtn">◐ Theme</button>
+      <button class="btn" id="resetBtn" style="display:none">New photo</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section id="intro">
+  <div class="eyebrow" style="margin-top:30px">Before you call it finished</div>
+  <h1 style="font-size:26px;margin-bottom:12px">Can you still read the model with the colour turned off?</h1>
+  <p class="lead">
+    Photograph the piece, strip the colour, and look at what's left. If skin, leather and cloth all sit at
+    the same grey, that's a value problem — not a colour problem, and no amount of new paint will fix it.
+    This does the desaturation properly and measures the range you actually used.
+  </p>
+  <p class="lead small" style="margin-top:14px">
+    <b>Your photo never leaves this page.</b> No upload, no server, no account — everything runs in your
+    browser. Works offline. Close the tab and it's gone.
+  </p>
+
+  <div id="drop">
+    <h3>Drop a photo here</h3>
+    <p class="muted small" style="margin:0">or click to choose · or paste from clipboard</p>
+    <input type="file" id="file" accept="image/*" hidden>
+  </div>
+
+  <div class="eyebrow" style="margin-top:30px">No photo handy? Try a known case</div>
+  <p class="lead small">
+    These are generated, not photographed — each has a value structure I built to a spec, so you can see
+    what the readout says about a model that's deliberately flat versus one that isn't.
+  </p>
+  <div class="samples" id="samples"></div>
+</section>
+
+<section id="work">
+  <div class="panes">
+    <div class="pane">
+      <h4>Your photo</h4>
+      <div class="canvas-host">
+        <canvas id="src"></canvas>
+        <canvas id="overlay"></canvas>
+      </div>
+      <div class="toolbar">
+        <button class="btn" id="tAuto">⌂ Remove backdrop</button>
+        <label class="rng">Sensitivity <input type="range" id="tol" min="4" max="40" value="12"></label>
+      </div>
+      <div class="toolbar">
+        <button class="btn on" id="tCrop">▭ Crop</button>
+        <button class="btn" id="tBrush">✏ Erase</button>
+        <label class="rng">Brush <input type="range" id="bSize" min="6" max="70" value="26"></label>
+        <button class="btn" id="tClear">Reset mask</button>
+      </div>
+      <p class="small muted" style="margin:11px 0 0" id="maskNote">
+        Everything dimmed is excluded from the numbers. <b>This step is not optional</b> — measured with the
+        backdrop left in, a flat model can score better than a good one, because the backdrop supplies darks
+        the painting never had.
+      </p>
+    </div>
+    <div class="pane">
+      <h4>Value only</h4>
+      <div class="canvas-host"><canvas id="grey"></canvas></div>
+      <div class="toolbar">
+        <label class="rng">Posterise <input type="range" id="post" min="0" max="8" value="0"></label>
+        <span class="small muted" id="postLbl">off</span>
+        <span class="sp"></span>
+        <button class="btn" id="dlBtn">Save this</button>
+      </div>
+      <p class="small muted" style="margin:11px 0 0">
+        Perceptual lightness (CIE L*), not your phone's saturation slider — a truer greyscale, because it
+        weights the channels the way an eye does. Posterise collapses it into bands: if two materials land
+        in the same band, they're the same value.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout warn" id="notMeasurable" style="display:none;margin-top:16px"></div>
+
+  <div id="numbers">
+  <div class="grid g4" style="margin-top:16px" id="stats"></div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="eyebrow">The histogram — where your values actually sit</div>
+    <canvas id="hist" height="150" style="width:100%;height:150px;display:block"></canvas>
+    <p class="small muted" style="margin:10px 0 0">
+      Left is black, right is white. The shaded band is 40–60% — the mud zone. Work that lives mostly in
+      there reads flat in photographs and across a display table, however nice the colours are up close.
+    </p>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="eyebrow">What the numbers say</div>
+    <div id="findings"></div>
+  </div>
+
+  <div class="callout warn">
+    <h4>What this can and can't tell you</h4>
+    <p class="small" style="margin:0">
+      It measures <em>this photograph</em>. Exposure, white balance, your light source and your backdrop all
+      move these numbers, so treat them as a reading of one photo rather than a verdict on the model —
+      and compare like with like by shooting in consistent light. Findings marked
+      <span class="ico i-cam" style="display:inline-grid;width:16px;height:16px;font-size:9.5px;vertical-align:-3px">◉</span>
+      are camera problems, not painting problems. A wide range is also not automatically <em>good</em>: a
+      deliberately low-key piece is meant to be compressed dark. The number is a prompt to look, not a score.
+    </p>
+  </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="eyebrow">Now the part no algorithm can do</div>
+    <ol class="qs">
+      <li><b>Can a stranger point at the light source?</b> Look at the greyscale panel and nothing else. If
+        the highlights don't agree on a direction, they're decoration rather than lighting.</li>
+      <li><b>Can you tell the materials apart?</b> Push posterise to 4 or 5. If skin, leather and cloth
+        collapse into the same band, you have a value problem wearing a colour costume.</li>
+      <li><b>Does the focal point hold?</b> Squint at the greyscale. Whatever your eye lands on first is
+        your focal point — whether or not you intended it to be.</li>
+    </ol>
+  </div>
+
+  <div class="card" style="margin-top:16px" id="histCard">
+    <div class="eyebrow">Your last few</div>
+    <div class="strip" id="strip"></div>
+    <p class="small muted" style="margin:10px 0 0">
+      Stored in this browser only, never uploaded. Shoot in the same light each time and this strip becomes
+      the most useful thing here — most painters have no record of what they were doing a year ago.
+      <button class="btn" id="clrHist" style="margin-left:6px">Clear</button>
+    </p>
+  </div>
+</section>
+
+</div>
+
+<script>
+"use strict";
+/* ---------- theme ---------- */
+const root=document.documentElement;
+if(localStorage.getItem('vc-theme')==='light') root.dataset.theme='light';
+themeBtn.onclick=()=>{
+  root.dataset.theme = root.dataset.theme==='light' ? '' : 'light';
+  localStorage.setItem('vc-theme', root.dataset.theme||'dark');
+  if(state.img) render();
+};
+
+/* ---------- colour maths ----------
+   sRGB -> linear -> luminance Y -> CIE L*  (0..100 perceptual lightness) */
+const LUT=new Float32Array(256);
+for(let i=0;i<256;i++){const c=i/255;LUT[i]= c<=0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055,2.4);}
+const yToL = Y => Y<=0.008856 ? Y*903.3 : 116*Math.cbrt(Y)-16;
+const lToY = L => L<=8 ? L/903.3 : Math.pow((L+16)/116,3);
+function linToSrgb(c){c=c<=0.0031308?c*12.92:1.055*Math.pow(c,1/2.4)-0.055;return Math.max(0,Math.min(255,Math.round(c*255)));}
+const L_TO_BYTE=new Uint8Array(101);
+for(let L=0;L<=100;L++) L_TO_BYTE[L]=linToSrgb(lToY(L));
+
+/* ---------- state ---------- */
+const MAXDIM=680;
+const state={img:null,w:0,h:0,data:null,L:null,mask:null,crop:null,tool:'crop',brush:26,post:0,label:''};
+const src=document.getElementById('src'), overlay=document.getElementById('overlay'), grey=document.getElementById('grey');
+const sctx=src.getContext('2d',{willReadFrequently:true}), octx=overlay.getContext('2d'), gctx=grey.getContext('2d');
+
+/* ---------- load ---------- */
+const drop=document.getElementById('drop'), file=document.getElementById('file');
+drop.onclick=()=>file.click();
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('over')};
+drop.ondragleave=()=>drop.classList.remove('over');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('over');if(e.dataTransfer.files[0])loadFile(e.dataTransfer.files[0])};
+file.onchange=e=>{if(e.target.files[0])loadFile(e.target.files[0])};
+window.addEventListener('paste',e=>{for(const it of e.clipboardData.files){if(it.type.startsWith('image/'))loadFile(it)}});
+function loadFile(f){const u=URL.createObjectURL(f);const im=new Image();im.onload=()=>{URL.revokeObjectURL(u);useImage(im,f.name.replace(/\.[^.]+$/,''))};im.src=u;}
+
+function useImage(im,label){
+  const sc=Math.min(1,MAXDIM/Math.max(im.width,im.height));
+  const w=Math.max(1,Math.round(im.width*sc)), h=Math.max(1,Math.round(im.height*sc));
+  state.w=w;state.h=h;state.img=im;state.label=label||'model';
+  for(const c of [src,overlay,grey]){c.width=w;c.height=h;}
+  sctx.drawImage(im,0,0,w,h);
+  const d=sctx.getImageData(0,0,w,h).data;
+  state.data=d;
+  const L=new Float32Array(w*h);
+  for(let i=0,p=0;i<L.length;i++,p+=4){
+    const Y=0.2126*LUT[d[p]]+0.7152*LUT[d[p+1]]+0.0722*LUT[d[p+2]];
+    L[i]=yToL(Y);
+  }
+  state.L=L;
+  state.mask=new Uint8Array(w*h).fill(1);
+  state.crop=null; state.manual=false;
+  document.getElementById('intro').style.display='none';
+  document.getElementById('work').style.display='block';
+  document.getElementById('resetBtn').style.display='';
+  runAuto(true);
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+document.getElementById('resetBtn').onclick=()=>{
+  document.getElementById('work').style.display='none';
+  document.getElementById('intro').style.display='';
+  document.getElementById('resetBtn').style.display='none';
+  state.img=null;
+};
+
+/* ---------- tools ---------- */
+const tCrop=document.getElementById('tCrop'), tBrush=document.getElementById('tBrush');
+tCrop.onclick=()=>{state.tool='crop';tCrop.classList.add('on');tBrush.classList.remove('on');overlay.style.cursor='crosshair'};
+tBrush.onclick=()=>{state.tool='brush';tBrush.classList.add('on');tCrop.classList.remove('on');overlay.style.cursor='cell'};
+document.getElementById('bSize').oninput=e=>state.brush=+e.target.value;
+document.getElementById('tClear').onclick=()=>{state.mask.fill(1);state.crop=null;render()};
+document.getElementById('post').oninput=e=>{
+  state.post=+e.target.value;
+  document.getElementById('postLbl').textContent = state.post? state.post+' bands' : 'off';
+  render();
+};
+
+/* Flood-fill the backdrop inward from the frame edge. Compares each candidate
+   to the pixel it spread from, so smooth gradient backdrops are followed while
+   a real edge on the model stops it. Refuses to apply if it would eat the
+   subject — better to leave the user to mask by hand than to silently delete it. */
+function floodBackdrop(tol){
+  const {w,h,data}=state, seen=new Uint8Array(w*h), out=new Uint8Array(w*h);
+  const stack=[]; const t2=tol*tol*3;
+  for(let x=0;x<w;x++){stack.push(x, (h-1)*w+x);}
+  for(let y=0;y<h;y++){stack.push(y*w, y*w+w-1);}
+  while(stack.length){
+    const i=stack.pop();
+    if(seen[i]) continue;
+    seen[i]=1; out[i]=1;
+    const p=i*4, x=i%w, y=(i/w)|0;
+    for(const[dx,dy]of[[1,0],[-1,0],[0,1],[0,-1]]){
+      const nx=x+dx, ny=y+dy;
+      if(nx<0||ny<0||nx>=w||ny>=h) continue;
+      const j=ny*w+nx; if(seen[j]) continue;
+      const q=j*4, dr=data[q]-data[p], dg=data[q+1]-data[p+1], db=data[q+2]-data[p+2];
+      if(dr*dr+dg*dg+db*db<=t2) stack.push(j);
+    }
+  }
+  let n=0; for(let i=0;i<out.length;i++) if(out[i]) n++;
+  if(n>out.length*0.92) return false;          // would leave almost nothing
+  for(let i=0;i<out.length;i++) if(out[i]) state.mask[i]=0;
+  return n/out.length;
+}
+function runAuto(silent){
+  const tol=+document.getElementById('tol').value;
+  state.mask.fill(1);
+  const r=floodBackdrop(tol);
+  const note=document.getElementById('maskNote');
+  state.maskedFrac = r===false ? 0 : r;
+  if(r===false){
+    note.innerHTML='<b style="color:var(--warn)">Couldn\'t separate the backdrop</b> — it\'s too close in tone to the model. '+
+      'Drag a crop box and erase by hand instead, or nudge the sensitivity.';
+  }else if(r!==false){
+    note.innerHTML='Backdrop removed — <b>'+Math.round(r*100)+'%</b> of the frame excluded. Check the dimmed area '+
+      'is really background; adjust sensitivity or erase the rest by hand. Everything dimmed is ignored by the numbers.';
+  }
+  render();
+}
+document.getElementById('tAuto').onclick=()=>runAuto(false);
+document.getElementById('tol').onchange=()=>runAuto(false);
+
+let drag=null;
+function pos(e){const r=overlay.getBoundingClientRect();const t=e.touches?e.touches[0]:e;
+  return {x:Math.round((t.clientX-r.left)/r.width*state.w), y:Math.round((t.clientY-r.top)/r.height*state.h)};}
+function down(e){e.preventDefault();const p=pos(e);
+  if(state.tool==='crop'){drag={x0:p.x,y0:p.y,x1:p.x,y1:p.y};}
+  else{drag={paint:true};paint(p);} }
+function move(e){if(!drag)return;e.preventDefault();const p=pos(e);
+  if(drag.paint){paint(p);} else {drag.x1=p.x;drag.y1=p.y;drawOverlay(drag);} }
+function up(){if(!drag)return;
+  if(!drag.paint){
+    const x0=Math.max(0,Math.min(drag.x0,drag.x1)), x1=Math.min(state.w,Math.max(drag.x0,drag.x1));
+    const y0=Math.max(0,Math.min(drag.y0,drag.y1)), y1=Math.min(state.h,Math.max(drag.y0,drag.y1));
+    state.crop = (x1-x0>8 && y1-y0>8) ? {x0,y0,x1,y1} : null;
+    if(state.crop) state.manual=true;
+  }
+  drag=null;render();
+}
+overlay.addEventListener('mousedown',down); overlay.addEventListener('touchstart',down,{passive:false});
+window.addEventListener('mousemove',move); window.addEventListener('touchmove',move,{passive:false});
+window.addEventListener('mouseup',up); window.addEventListener('touchend',up);
+
+function paint(p){
+  state.manual=true;
+  const r=state.brush/2, r2=r*r;
+  for(let y=Math.max(0,Math.floor(p.y-r));y<Math.min(state.h,p.y+r);y++)
+    for(let x=Math.max(0,Math.floor(p.x-r));x<Math.min(state.w,p.x+r);x++){
+      const dx=x-p.x, dy=y-p.y;
+      if(dx*dx+dy*dy<=r2) state.mask[y*state.w+x]=0;
+    }
+  render();
+}
+
+/* ---------- render ---------- */
+function active(){
+  const {w,h,crop,mask}=state, a=new Uint8Array(w*h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const i=y*w+x;
+    const inCrop = !crop || (x>=crop.x0&&x<crop.x1&&y>=crop.y0&&y<crop.y1);
+    a[i]= inCrop && mask[i] ? 1 : 0;
+  }
+  return a;
+}
+function drawOverlay(d){
+  octx.clearRect(0,0,state.w,state.h);
+  if(!d) return;
+  octx.strokeStyle='#7c9cff';octx.lineWidth=1.5;octx.setLineDash([5,4]);
+  octx.strokeRect(Math.min(d.x0,d.x1),Math.min(d.y0,d.y1),Math.abs(d.x1-d.x0),Math.abs(d.y1-d.y0));
+}
+function render(){
+  if(!state.img) return;
+  const {w,h,L}=state, a=active();
+  // source with excluded region dimmed
+  sctx.drawImage(state.img,0,0,w,h);
+  const im=sctx.getImageData(0,0,w,h), d=im.data;
+  for(let i=0,p=0;i<a.length;i++,p+=4){
+    if(!a[i]){ d[p]=(d[p]*0.25)|0; d[p+1]=(d[p+1]*0.25)|0; d[p+2]=(d[p+2]*0.28+30)|0; }
+  }
+  sctx.putImageData(im,0,0);
+  octx.clearRect(0,0,w,h);
+  if(state.crop){
+    octx.strokeStyle='#7c9cff';octx.lineWidth=1.5;octx.setLineDash([5,4]);
+    octx.strokeRect(state.crop.x0,state.crop.y0,state.crop.x1-state.crop.x0,state.crop.y1-state.crop.y0);
+  }
+  // greyscale
+  const gi=gctx.createImageData(w,h), g=gi.data;
+  const bands=state.post;
+  for(let i=0,p=0;i<L.length;i++,p+=4){
+    let l=L[i];
+    if(bands){ const step=100/(bands-1); l=Math.round(l/step)*step; }
+    const v=L_TO_BYTE[Math.max(0,Math.min(100,Math.round(l)))];
+    const off=!a[i];
+    g[p]=off? (v*0.3)|0 : v; g[p+1]=off? (v*0.3)|0 : v; g[p+2]=off? (v*0.34+22)|0 : v; g[p+3]=255;
+  }
+  gctx.putImageData(gi,0,0);
+  analyse(a);
+}
+
+/* ---------- analysis ---------- */
+/* Real bench photos cannot be measured. A cluttered background supplies
+   near-black and near-white regardless of the painting, which pins the
+   percentiles and makes every model score "wide range" — tested against seven
+   known-flat models, all seven passed. So numbers are shown only when the
+   frame is demonstrably clean, and withheld otherwise. The greyscale view
+   works on anything and is the part that was always doing the work. */
+function measurable(){
+  if(state.manual) return {ok:true};
+  const {w,h,L}=state, e=[];
+  for(let x=0;x<w;x+=2){e.push(L[x],L[(h-1)*w+x]);}
+  for(let y=0;y<h;y+=2){e.push(L[y*w],L[y*w+w-1]);}
+  const m=e.reduce((a,b)=>a+b,0)/e.length;
+  const sd=Math.sqrt(e.reduce((a,b)=>a+(b-m)*(b-m),0)/e.length);
+  if(sd>13) return {ok:false, why:'cluttered'};
+  if((state.maskedFrac||0)<0.2) return {ok:false, why:'backdrop'};
+  return {ok:true};
+}
+function analyse(a){
+  const {L}=state;
+  const M=measurable();
+  document.getElementById('numbers').style.display = M.ok? '' : 'none';
+  const nm=document.getElementById('notMeasurable');
+  nm.style.display = M.ok? 'none' : '';
+  if(!M.ok){
+    state.lastS=null;                       // don't let a previous photo's stats get saved
+    document.getElementById('dlBtn').disabled=true;
+    nm.innerHTML = (M.why==='cluttered'
+      ? `<h4>No numbers for this photo — the background is in the way</h4>
+         <p class="small" style="margin:0">There's a workbench behind this model, and a workbench contains
+         near-black shadows and near-white paper. Those set the top and bottom of any measurement, so the
+         figures would describe your desk rather than your painting. Tested on seven models known to be flat,
+         every one scored "wide range" this way — so the honest thing is to show you nothing.</p>`
+      : `<h4>No numbers yet — the backdrop is still included</h4>
+         <p class="small" style="margin:0">A plain backdrop is present but hasn't been separated from the
+         model, so it would donate darks or lights the painting never had.</p>`)
+      + `<p class="small" style="margin:12px 0 0"><b>Two ways forward.</b> Crop to the model and erase what's
+         left — that unlocks the numbers. Or reshoot: stand a sheet of plain paper behind the model, fill the
+         frame with it, same lamp every time. That takes ten seconds, makes the numbers valid, and makes every
+         future photo comparable with this one.</p>
+         <p class="small muted" style="margin:10px 0 0">The greyscale panel above is unaffected and is the part
+         that matters most — it works on any photo. Push posterise to 4 or 5 and answer the three questions below.</p>`;
+    return;
+  }
+  const vals=[];
+  for(let i=0;i<L.length;i++) if(a[i]) vals.push(L[i]);
+  if(vals.length<200){ document.getElementById('stats').innerHTML='<div class="stat"><div class="n">—</div><div class="l">select more of the model</div></div>'; return; }
+  vals.sort((x,y)=>x-y);
+  const q=p=>vals[Math.min(vals.length-1,Math.max(0,Math.floor(p*(vals.length-1))))];
+  const p2=q(.02),p5=q(.05),p50=q(.50),p95=q(.95),p98=q(.98);
+  const range=p95-p5;
+  let mid=0,dark=0,light=0,crush=0,blow=0;
+  for(const v of vals){
+    if(v>=40&&v<=60)mid++;
+    if(v<15)dark++;
+    if(v>85)light++;
+    if(v<1.5)crush++;
+    if(v>98.5)blow++;
+  }
+  const n=vals.length, pc=x=>x/n*100;
+  const S={p2,p5,p50,p95,p98,range,mid:pc(mid),dark:pc(dark),light:pc(light),crush:pc(crush),blow:pc(blow),n};
+
+  document.getElementById('stats').innerHTML=[
+    ['n', Math.round(S.range), 'value range used<br>(5th–95th percentile L*)'],
+    ['n', Math.round(S.mid)+'%', 'sitting in the 40–60 mud band'],
+    ['n', Math.round(S.p5)+'–'+Math.round(S.p95), 'darkest to lightest<br>on a 0–100 scale'],
+    ['n', Math.round(S.p50), 'median value — where the piece<br>sits overall']
+  ].map(([_,v,l])=>`<div class="stat"><div class="n">${v}</div><div class="l">${l}</div></div>`).join('');
+
+  drawHist(vals,S);
+  findings(S);
+  saveHistory(S);
+}
+
+function drawHist(vals,S){
+  const c=document.getElementById('hist'), dpr=window.devicePixelRatio||1;
+  const W=c.clientWidth, H=150;
+  c.width=W*dpr;c.height=H*dpr;
+  const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,W,H);
+  const bins=new Float64Array(100);
+  for(const v of vals) bins[Math.max(0,Math.min(99,Math.floor(v)))]++;
+  const max=Math.max(...bins)||1;
+  const cs=getComputedStyle(root);
+  const acc=cs.getPropertyValue('--acc').trim(), line=cs.getPropertyValue('--line2').trim(), tx3=cs.getPropertyValue('--tx3').trim();
+  // mud band
+  x.fillStyle=cs.getPropertyValue('--bg3').trim();
+  x.fillRect(W*0.40,0,W*0.20,H-18);
+  // bars
+  for(let i=0;i<100;i++){
+    const h=(bins[i]/max)*(H-24);
+    x.fillStyle = (i>=40&&i<=60)? acc : line;
+    x.fillRect(i/100*W, H-18-h, W/100+0.6, h);
+  }
+  // markers
+  x.strokeStyle=acc;x.lineWidth=1;x.setLineDash([3,3]);
+  for(const p of [S.p5,S.p95]){x.beginPath();x.moveTo(p/100*W,0);x.lineTo(p/100*W,H-18);x.stroke();}
+  x.setLineDash([]);
+  x.fillStyle=tx3;x.font='10px ui-monospace,monospace';
+  x.fillText('black',2,H-5); x.fillText('40',W*0.40+2,H-5); x.fillText('60',W*0.60+2,H-5);
+  x.textAlign='right';x.fillText('white',W-2,H-5);
+}
+
+function findings(S){
+  const F=[];
+  const add=(k,t)=>F.push([k,t]);
+
+  /* Safety net: if a plain backdrop is clearly present and almost nothing has
+     been excluded, every number below is measuring the backdrop too. Say so
+     loudly rather than reporting a confident figure from a bad input. */
+  const {w,h,L}=state, edge=[];
+  for(let x=0;x<w;x+=2){edge.push(L[x],L[(h-1)*w+x]);}
+  for(let y=0;y<h;y+=2){edge.push(L[y*w],L[y*w+w-1]);}
+  const em=edge.reduce((a,b)=>a+b,0)/edge.length;
+  const esd=Math.sqrt(edge.reduce((a,b)=>a+(b-em)*(b-em),0)/edge.length);
+  if(esd<9 && (state.maskedFrac||0)<0.05 && !state.crop)
+    add('bad',`<b>The backdrop is probably still in these numbers.</b> The frame edge is a flat, even tone
+      (around ${Math.round(em)}/100), which says plain backdrop — and almost none of the image has been
+      excluded. Auto-removal can't separate a model from a backdrop of a similar tone, so crop to the model
+      and erase the rest by hand. <b>Until you do, treat everything below as unreliable</b> — a backdrop
+      donates darks or lights the painting never had.`);
+
+  if(S.range<35) add('bad',`<b>Narrow value range — ${Math.round(S.range)} points.</b> Ninety per cent of this model lives inside a third of the available scale. This is the single most common reason work looks flat in photos and disappears on a display table.`);
+  else if(S.range<50) add('warn',`<b>Moderate value range — ${Math.round(S.range)} points.</b> There's a structure here but it's compressed. Pushing the darks down and the lights up is usually the cheapest improvement available.`);
+  else if(S.range<75) add('ok',`<b>Good value range — ${Math.round(S.range)} points.</b> Wide enough to read across a room.`);
+  else add('ok',`<b>Very wide range — ${Math.round(S.range)} points.</b> Plenty of separation. Worth checking the transitions aren't chalky where you've pushed the highlights.`);
+
+  if(S.mid>55) add('bad',`<b>${Math.round(S.mid)}% of the model is in the 40–60 mud band.</b> More than half the surface is the same mid grey. Whatever the colours are doing, the eye is being given nothing to grab.`);
+  else if(S.mid>40) add('warn',`<b>${Math.round(S.mid)}% sits in the mud band.</b> A lot of the surface is mid-value. Not fatal, but it's where a piece loses its punch.`);
+  else add('ok',`<b>Only ${Math.round(S.mid)}% in the mud band.</b> The values are spread rather than pooled.`);
+
+  if(S.dark<0.5) add('warn',`<b>No true darks.</b> Nothing on this model is below 15/100. Recesses and shadow cores are where contrast is cheapest — and it's usually where people stop too early.`);
+  else add('ok',`<b>True darks present</b> — ${S.dark.toFixed(1)}% of the surface is genuinely dark, which gives the lights something to be light against.`);
+
+  if(S.light<0.3) add('warn',`<b>No near-whites.</b> Nothing reaches above 85/100. A small amount of near-white — an edge, a specular, a lit plane — is what makes the rest read as lit rather than merely coloured.`);
+  else if(S.light>18) add('warn',`<b>${Math.round(S.light)}% near-white.</b> That's a lot of very light surface. Check the highlights haven't gone chalky — over-highlighting reads as washed out rather than bright.`);
+  else add('ok',`<b>Near-whites present</b> — ${S.light.toFixed(1)}% up in the top band, which is usually about right for a light source that reads.`);
+
+  if(S.crush>2) add('cam',`<b>${S.crush.toFixed(1)}% of pixels are crushed to pure black.</b> That's the photograph, not the paint — detail in the shadows has been thrown away by exposure. Reshoot brighter or lift the shadows before trusting the dark end of these numbers.`);
+  if(S.blow>2) add('cam',`<b>${S.blow.toFixed(1)}% of pixels are blown to pure white.</b> Also the photograph. Your camera has clipped the highlights, so the top of this range is invented. Reshoot with less light or lower exposure.`);
+
+  const ico={ok:'✓',warn:'!',bad:'!',cam:'◉'};
+  document.getElementById('findings').innerHTML=F.map(([k,t])=>
+    `<div class="finding"><div class="ico i-${k}">${ico[k]}</div><div>${t}</div></div>`).join('');
+}
+
+/* ---------- history ---------- */
+function saveHistory(S){ state.lastS=S; document.getElementById('dlBtn').disabled=false; }
+document.getElementById('dlBtn').onclick=()=>{
+  // persist a thumbnail + stats, and offer the greyscale image as a file
+  const t=document.createElement('canvas');t.width=t.height=92;
+  const tc=t.getContext('2d');
+  const s=Math.min(grey.width,grey.height);
+  tc.drawImage(grey,(grey.width-s)/2,(grey.height-s)/2,s,s,0,0,92,92);
+  const H=JSON.parse(localStorage.getItem('vc-hist')||'[]');
+  H.unshift({t:new Date().toISOString().slice(0,10),thumb:t.toDataURL('image/jpeg',0.7),
+             range:Math.round(state.lastS.range),mid:Math.round(state.lastS.mid)});
+  localStorage.setItem('vc-hist',JSON.stringify(H.slice(0,24)));
+  drawStrip();
+  const a=document.createElement('a');
+  a.download=(state.label||'model')+'-greyscale.png';
+  a.href=grey.toDataURL('image/png');a.click();
+};
+document.getElementById('clrHist').onclick=()=>{localStorage.removeItem('vc-hist');drawStrip()};
+function drawStrip(){
+  const H=JSON.parse(localStorage.getItem('vc-hist')||'[]');
+  document.getElementById('strip').innerHTML = H.length
+    ? H.map(h=>`<div class="it"><img src="${h.thumb}" alt=""><div class="cap">${h.t}<br>range ${h.range}</div></div>`).join('')
+    : '<span class="small muted" style="padding:8px 2px">Nothing saved yet — hit “Save this” to start the record.</span>';
+}
+drawStrip();
+
+/* ---------- synthetic fixtures ----------
+   A lit sphere rendered directly to a target L* range, so the expected
+   readout is known in advance and the maths can be checked against it. */
+function sphere(cv,{lo,hi,clip=0,key='normal'}){
+  const N=cv.width, r=N*0.40, cx=N/2, cy=N/2;
+  const ctx=cv.getContext('2d'), im=ctx.createImageData(N,N), d=im.data;
+  const lx=-0.55, ly=-0.62, lz=0.56;
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+    const p=(y*N+x)*4;
+    const dx=(x-cx)/r, dy=(y-cy)/r, q=dx*dx+dy*dy;
+    if(q>1){ d[p]=d[p+1]=d[p+2]=8; d[p+3]=255; continue; }   // near-black backdrop
+    const nz=Math.sqrt(1-q);
+    let nl=dx*lx+dy*ly+nz*lz;
+    nl=Math.max(0,nl);
+    let t=Math.pow(nl,key==='lowkey'?1.9:1.0);
+    // ambient fill so the dark side isn't dead
+    t=0.06+0.94*t;
+    let L=lo+(hi-lo)*t;
+    // specular
+    const spec=Math.pow(Math.max(0,nl),42)*(key==='lowkey'?70:35);
+    L=Math.min(100,L+spec);
+    if(clip) L=Math.min(100-0.0,L*(1+clip)) ;
+    const v=L_TO_BYTE[Math.max(0,Math.min(100,Math.round(L)))];
+    d[p]=d[p+1]=d[p+2]=v; d[p+3]=255;
+  }
+  ctx.putImageData(im,0,0);
+}
+const SAMPLES=[
+  {t:'Full range',   d:'L* 4 → 96. What a controlled value structure looks like.', o:{lo:4,hi:92}},
+  {t:'The mud',      d:'Compressed to 35–65. Same lighting, same shape, no punch.', o:{lo:35,hi:65}},
+  {t:'Low key',      d:'Mostly dark, one true specular. Compressed on purpose.',    o:{lo:3,hi:52,key:'lowkey'}},
+  {t:'Blown out',    d:'Over-exposed. A camera fault this tool should call out.',   o:{lo:30,hi:99,clip:0.22}}
+];
+const host=document.getElementById('samples');
+SAMPLES.forEach(s=>{
+  const el=document.createElement('div');el.className='samp';
+  const cv=document.createElement('canvas');cv.width=cv.height=190;
+  el.appendChild(cv);
+  el.insertAdjacentHTML('beforeend',`<div class="t">${s.t}</div><div class="d">${s.d}</div>`);
+  sphere(cv,s.o);
+  el.onclick=()=>{const im=new Image();im.onload=()=>useImage(im,s.t.toLowerCase().replace(/\s+/g,'-'));im.src=cv.toDataURL();};
+  host.appendChild(el);
+});
+window.addEventListener('resize',()=>{if(state.img&&state.lastS)render()});
+</script>
+</body>
+</html>
