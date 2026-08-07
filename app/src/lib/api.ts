@@ -44,3 +44,15 @@ export async function fetchOriginal(id: string): Promise<Blob> {
   const res = await ok(await fetch(`/api/images/${id}/original`));
   return res.blob();
 }
+
+/** The flywheel: a user-corrected mask, downscaled. Fire-and-forget quality —
+ * failures must never interrupt the user's download. */
+export async function uploadMask(id: string, maskPng: Blob): Promise<void> {
+  await ok(
+    await fetch(`/api/images/${id}/mask`, {
+      method: 'POST',
+      headers: { 'content-type': 'image/png' },
+      body: maskPng
+    })
+  );
+}

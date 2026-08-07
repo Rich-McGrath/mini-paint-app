@@ -47,9 +47,16 @@ npm run build && cd worker && npx wrangler dev    # full stack at localhost:8787
 Or for app iteration with hot reload: `npx wrangler dev` in `worker/` plus `npm run dev`
 in `app/` — the Vite dev server proxies `/api` to wrangler on :8787.
 
+The committed default is the real provider, so local dev needs a `worker/.dev.vars`
+(gitignored) to run credential-free on the mock:
+
+```
+SEGMENTATION_PROVIDER=mock
+```
+
 Without Supabase secrets, records fall back to an in-memory map (fine locally; per-isolate
-in production, so Supabase is required for a real deploy). Without `FAL_KEY`, keep the mock
-provider.
+in production, so Supabase is required for a real deploy). The mock returns the photo uncut,
+which also leaves lighting inert — fine for exercising the editor, useless for judging it.
 
 ## Smoke test after deploy
 
