@@ -88,6 +88,26 @@ export async function updateImage(env: Env, id: string, patch: Partial<ImageReco
   });
 }
 
+/** Uploads by this user since UTC midnight — the free-tier counter. Uses the
+ * (user_id, created_at) index; no extra table needed. */
+export async function countImagesToday(env: Env, userId: string): Promise<number> {
+  const midnight = new Date();
+  midnight.setUTCHours(0, 0, 0, 0);
+  if (!configured(env)) {
+    let n = 0;
+    for (const record of memory.values()) {
+      if (record.user_id === userId && record.created_at >= midnight.toISOString()) n++;
+    }
+    return n;
+  }
+  const res = await rest(
+    env,
+    `images?user_id=eq.${encodeURIComponent(userId)}&created_at=gte.${midnight.toISOString()}&select=id`,
+    { method: 'HEAD', headers: { Prefer: 'count=exact' } }
+  );
+  return Number(res.headers.get('content-range')?.split('/')[1] ?? '0');
+}
+
 export async function getUsername(env: Env, userId: string): Promise<string | null> {
   if (!configured(env)) return memoryUsernames.get(userId) ?? null;
   const res = await rest(env, `usernames?user_id=eq.${encodeURIComponent(userId)}`, {

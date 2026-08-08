@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { resolveUser } from './auth';
 import {
   claimUsername,
+  countImagesToday,
   createImage,
   deleteImage,
   getImage,
@@ -20,6 +21,9 @@ export type Env = {
   SUPABASE_URL?: string;
   SUPABASE_SERVICE_KEY?: string;
   SEGMENTATION_PROVIDER?: 'fal' | 'mock';
+  /** Per-user uploads per UTC day; unset or "0" = unlimited. Every upload is
+   * one paid segmentation, so this is the free-tier lever (SPEC §11). */
+  DAILY_UPLOAD_LIMIT?: string;
 };
 
 /* The client normalises uploads to ≤2048px JPEG (well under 2MB); this cap
@@ -74,6 +78,14 @@ app.post('/images', async (c) => {
   if (length > MAX_UPLOAD_BYTES) return c.json({ error: 'image too large (8MB max)' }, 413);
   const userId = await callerId(c);
   if (!userId) return c.json({ error: 'missing x-user-id header' }, 400);
+
+  const limit = Number(c.env.DAILY_UPLOAD_LIMIT ?? '0');
+  if (limit > 0 && (await countImagesToday(c.env, userId)) >= limit) {
+    return c.json(
+      { error: `That's the ${limit} photos for today — more tomorrow.` },
+      429
+    );
+  }
 
   const bytes = new Uint8Array(await c.req.arrayBuffer());
   if (bytes.length === 0) return c.json({ error: 'empty body' }, 400);
