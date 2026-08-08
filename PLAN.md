@@ -28,6 +28,11 @@ clears the bar. Judged on: pot/handle behaviour, thin structures (spears, banner
 edge quality at full resolution, latency through the queue API, and per-image price. The u2net
 floor test in SPEC §10 means any production model should clear the bar.
 
+**Decision (7 Aug 2026): BiRefNet v2.** Both candidates ran over the seven fixtures via
+`scripts/bakeoff.mjs`; the owner judged BiRefNet v2 better by eyeball. Locked in
+`wrangler.toml` as `FAL_MODEL`. Per-image price (read off the fal dashboard after the run)
+still feeds the free-tier decision in SPEC §11.
+
 Two notes from the previous project's stack: the **SAM 3** access that exists there but is
 unused is a plausible v1.x upgrade for tap-to-remove (tap point → segment → subtract from
 mask) — noted, not scoped into v1. And the Anthropic/Claude text plumbing has **no use in
