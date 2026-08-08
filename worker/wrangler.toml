@@ -1,0 +1,29 @@
+# Studioshot — one Worker serves both the built SPA (static assets) and the API
+# under /api. One deploy, no CORS, uploads stream through the Worker into R2.
+#
+# Secrets (never in this file, set via `wrangler secret put`):
+#   FAL_KEY               fal.ai queue API key (segmentation)
+#   SUPABASE_URL          Supabase project URL
+#   SUPABASE_SERVICE_KEY  Supabase service-role key (server-only)
+
+name = "studioshot"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+[assets]
+directory = "../app/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "studioshot-images"
+
+[vars]
+# Production default. Set to "mock" for credential-free local development —
+# the mock returns the photo uncut, which also leaves lighting inert (no
+# background/subject split to correct against).
+SEGMENTATION_PROVIDER = "fal"
+# Bake-off winner (owner eyeball over the seven fixtures, 7 Aug 2026) vs BRIA RMBG-2.0.
+FAL_MODEL = "fal-ai/birefnet/v2"
