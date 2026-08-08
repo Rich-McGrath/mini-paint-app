@@ -195,6 +195,22 @@ describe('walking skeleton', () => {
     expect(res.status).toBe(200);
   });
 
+  it('enforces the daily upload limit per user when configured', async () => {
+    const e = { ...env(), DAILY_UPLOAD_LIMIT: '2' } as Env;
+    expect((await upload(e, 'limited-user')).status).toBe(201);
+    expect((await upload(e, 'limited-user')).status).toBe(201);
+    const third = await upload(e, 'limited-user');
+    expect(third.status).toBe(429);
+    expect(((await third.json()) as { error: string }).error).toContain('today');
+    // other users are unaffected
+    expect((await upload(e, 'someone-else')).status).toBe(201);
+  });
+
+  it('leaves uploads unlimited when the limit is unset or zero', async () => {
+    const e = { ...env(), DAILY_UPLOAD_LIMIT: '0' } as Env;
+    for (let i = 0; i < 5; i++) expect((await upload(e, 'heavy-user')).status).toBe(201);
+  });
+
   it('requires sign-in for /me and /username', async () => {
     const e = env();
     expect((await app.request('/api/me', {}, e)).status).toBe(401);

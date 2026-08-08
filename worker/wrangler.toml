@@ -28,3 +28,6 @@ bucket_name = "studioshot-images"
 SEGMENTATION_PROVIDER = "fal"
 # Bake-off winner (owner eyeball over the seven fixtures, 7 Aug 2026) vs BRIA RMBG-2.0.
 FAL_MODEL = "fal-ai/birefnet/v2"
+# Free-tier lever (SPEC §11): per-user uploads per UTC day; "0" = unlimited.
+# Set once the per-image price is known. Each upload is one paid segmentation.
+DAILY_UPLOAD_LIMIT = "0"
