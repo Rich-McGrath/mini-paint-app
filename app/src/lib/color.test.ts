@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { L_TO_BYTE, lToY, linearToSrgbByte, SRGB_TO_LINEAR, srgbToL, yToL } from './color';
+import {
+  L_TO_BYTE,
+  lToY,
+  linearToSrgbByte,
+  linearToSrgbByteFast,
+  SRGB_TO_LINEAR,
+  srgbToL,
+  yToL
+} from './color';
 
 describe('colour maths (ported from value-check.html — verified there)', () => {
   it('maps L* 50 to sRGB byte 119, not 128', () => {
@@ -27,6 +35,15 @@ describe('colour maths (ported from value-check.html — verified there)', () =>
     for (let b = 0; b < 256; b++) {
       expect(linearToSrgbByte(SRGB_TO_LINEAR[b]!)).toBe(b);
     }
+  });
+
+  it('fast LUT agrees with the exact conversion within one byte', () => {
+    for (let i = 0; i <= 1000; i++) {
+      const c = i / 1000;
+      expect(Math.abs(linearToSrgbByteFast(c) - linearToSrgbByte(c))).toBeLessThanOrEqual(1);
+    }
+    expect(linearToSrgbByteFast(-0.5)).toBe(0);
+    expect(linearToSrgbByteFast(1.5)).toBe(255);
   });
 
   it('is monotonic: more lightness never means a darker byte', () => {

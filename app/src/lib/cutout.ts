@@ -1,6 +1,10 @@
 /* Pure cutout geometry — no DOM, testable under Node.
  * The cutout PNG's alpha channel is the mask; auto-crop is its bounding box. */
 
+/** Alpha above this counts as subject — the single source of the threshold
+ * for crop, editor, lighting, and UI probes. */
+export const ALPHA_THRESHOLD = 8;
+
 export interface BBox {
   x0: number;
   y0: number;
@@ -14,7 +18,7 @@ export function alphaBBox(
   rgba: Uint8ClampedArray | Uint8Array,
   width: number,
   height: number,
-  threshold = 8
+  threshold = ALPHA_THRESHOLD
 ): BBox | null {
   let x0 = width;
   let y0 = height;

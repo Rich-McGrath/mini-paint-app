@@ -5,7 +5,8 @@
  * a megabyte — bandwidth is the main cost (SPEC §2). The user's original file
  * never leaves the device modified; this is a derived upload copy. */
 
-const UPLOAD_DIM = 2048; // matches export resolution — nothing beyond it is used
+import { WORKING_DIM } from './dims';
+
 const JPEG_QUALITY = 0.9;
 
 export async function normalizeForUpload(file: File): Promise<Blob> {
@@ -16,7 +17,7 @@ export async function normalizeForUpload(file: File): Promise<Blob> {
     throw new Error("Couldn't read that photo. Try a JPEG or PNG.");
   }
   try {
-    const scale = Math.min(1, UPLOAD_DIM / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, WORKING_DIM / Math.max(bitmap.width, bitmap.height));
     const w = Math.max(1, Math.round(bitmap.width * scale));
     const h = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = document.createElement('canvas');

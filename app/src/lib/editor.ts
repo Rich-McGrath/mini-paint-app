@@ -3,17 +3,25 @@
  * Corrections are non-destructive operations over the segmentation mask
  * (SPEC §4): the base alpha comes from the API's cutout, every user gesture is
  * an Op, and the effective mask is a deterministic replay. Undo pops an Op.
- * Coordinates and sizes are normalised (0–1 of image dimensions) so the same
- * ops replay identically at editing and export resolutions. */
+ * Coordinates and sizes are normalised (0–1 of image dimensions). The editing
+ * resolution is canonical: edits are captured there as a per-pixel diff
+ * (computeEditDiff) and projected onto other resolutions (applyEditDiff), so
+ * the export always matches the preview. */
 
 export type Op =
   | { kind: 'trim'; y: number } // everything below y (fraction of height) goes
   | { kind: 'tap'; x: number; y: number } // remove the connected region under the tap
   | { kind: 'brush'; mode: 'add' | 'erase'; radius: number; points: Array<[number, number]> };
 
-const ALPHA_THRESHOLD = 8;
+import { ALPHA_THRESHOLD } from './cutout';
 
-/** Replay ops over a copy of the base alpha. */
+export { ALPHA_THRESHOLD };
+
+/** Replay ops over a copy of the base alpha — at the editing resolution only.
+ * The tap op's flood fill depends on pixel connectivity, which changes with
+ * resolution, so replay at any other resolution is NOT equivalent; use
+ * computeEditDiff/applyEditDiff to project edits onto another resolution's
+ * base mask instead. */
 export function replayOps(base: Uint8Array, width: number, height: number, ops: Op[]): Uint8Array {
   const alpha = Uint8Array.from(base);
   for (const op of ops) {
@@ -104,4 +112,46 @@ function applyBrush(
       stamp(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
     }
   }
+}
+
+/** Per-pixel effect of the ops at the editing resolution — the canonical
+ * record of what the user changed. 0 = untouched, 1 = removed, 2 = added. */
+export function computeEditDiff(
+  base: Uint8Array,
+  width: number,
+  height: number,
+  ops: Op[]
+): Uint8Array {
+  const replayed = replayOps(base, width, height, ops);
+  const diff = new Uint8Array(base.length);
+  for (let p = 0; p < base.length; p++) {
+    if (replayed[p] === base[p]) continue;
+    diff[p] = replayed[p]! <= ALPHA_THRESHOLD ? 1 : 2;
+  }
+  return diff;
+}
+
+/** Project an edit-resolution diff onto a base mask at any resolution. The
+ * result matches the editing preview by construction — including tap
+ * removals, whose flood-fill connectivity would differ if replayed natively
+ * at the target resolution. Identity when resolutions match. */
+export function applyEditDiff(
+  base: Uint8Array,
+  width: number,
+  height: number,
+  diff: Uint8Array,
+  diffWidth: number,
+  diffHeight: number
+): Uint8Array {
+  const alpha = Uint8Array.from(base);
+  for (let y = 0; y < height; y++) {
+    const dy = Math.min(diffHeight - 1, Math.floor((y * diffHeight) / height));
+    for (let x = 0; x < width; x++) {
+      const dx = Math.min(diffWidth - 1, Math.floor((x * diffWidth) / width));
+      const code = diff[dy * diffWidth + dx];
+      if (code === 1) alpha[y * width + x] = 0;
+      else if (code === 2) alpha[y * width + x] = 255;
+    }
+  }
+  return alpha;
 }

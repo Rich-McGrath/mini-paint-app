@@ -1,6 +1,7 @@
 import './styles/base.css';
 import {
   claimUsername,
+  deleteImage,
   fetchCutout,
   fetchMe,
   fetchOriginal,
@@ -9,9 +10,10 @@ import {
   uploadMask,
   type Me
 } from './lib/api';
-import { alphaBBox, padBBox, type BBox } from './lib/cutout';
-import { replayOps, type Op } from './lib/editor';
-import { correctLighting } from './lib/lighting';
+import { ALPHA_THRESHOLD, type BBox } from './lib/cutout';
+import { EDIT_DIM, WORKING_DIM } from './lib/dims';
+import { type Op } from './lib/editor';
+import { deriveView, editAlpha, projectedAlpha, type BaseBuffers } from './lib/pipeline';
 import { adoptSessionFromUrl, authAvailable, requestMagicLink, signOut } from './lib/session';
 
 /* M3: the correction editor (design/EditorPhone.dc.html, dock variant).
@@ -19,8 +21,6 @@ import { adoptSessionFromUrl, authAvailable, requestMagicLink, signOut } from '.
  * Tools in frequency order: trim line → tap-to-remove → brush → edge loupe.
  * All edits are non-destructive ops over the mask; undo pops one. */
 
-const EDIT_DIM = 1280; // interactive resolution
-const EXPORT_DIM = 2048; // export resolution (ops replay there)
 const TRIM_KEY = 'ss-trim'; // remembered trim line (same pot next time)
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -35,17 +35,25 @@ interface EditSession {
   fileName: string;
   width: number;
   height: number;
-  origRgba: Uint8ClampedArray; // original photo at edit resolution
-  baseAlpha: Uint8Array; // the API's mask
+  base: BaseBuffers; // edit-resolution buffers (canonical for ops)
+  subjectScratch: Uint8ClampedArray; // reused per recompute; alpha bytes rewritten
+  origCanvas: HTMLCanvasElement; // original at edit resolution, drawn once
   origBitmap: ImageBitmap; // full-res sources for export
   cutoutBitmap: ImageBitmap;
   ops: Op[];
+  serverDeleted: boolean; // user deleted the upload server-side
+  trimOffered: boolean; // the one-tap remembered-trim offer, shown once
   // derived by recompute():
   alpha: Uint8Array;
-  corrected: Uint8ClampedArray;
   crop: BBox;
   beforeCanvas: HTMLCanvasElement;
   subjectCanvas: HTMLCanvasElement; // corrected subject, transparent background
+}
+
+interface ExportResult {
+  blob: Blob;
+  width: number;
+  height: number;
 }
 
 interface State {
@@ -63,6 +71,8 @@ interface State {
   me: Me | null; // signed-in state (null = anonymous)
   authSheet: 'signin' | 'sent' | 'username' | null;
   lastFile: File | null; // for the error screen's retry
+  exportCache: ExportResult | null; // invalidated on every op change
+  exportPending: Promise<ExportResult> | null;
 }
 
 const state: State = {
@@ -79,7 +89,9 @@ const state: State = {
   busy: false,
   me: null,
   authSheet: null,
-  lastFile: null
+  lastFile: null,
+  exportCache: null,
+  exportPending: null
 };
 
 function set(patch: Partial<State>): void {
@@ -88,15 +100,28 @@ function set(patch: Partial<State>): void {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
-function toast(message: string): void {
+function toast(message: string, action?: { label: string; run: () => void }): void {
   document.querySelector('[data-role=toast]')?.remove();
   const el = html(`<div data-role="toast" style="position:fixed;left:50%;transform:translateX(-50%);
-    bottom:140px;z-index:50;padding:8px 16px;border-radius:999px;background:var(--surface-raised);
-    border:1px solid var(--border-strong);font-size:var(--text-sm);color:var(--text-primary);
-    box-shadow:0 4px 16px rgba(0,0,0,0.4);white-space:nowrap;">${escapeHtml(message)}</div>`);
+    bottom:140px;z-index:50;display:flex;align-items:center;gap:var(--space-2);padding:8px 8px 8px 16px;
+    border-radius:999px;background:var(--surface-raised);border:1px solid var(--border-strong);
+    font-size:var(--text-sm);color:var(--text-primary);box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    white-space:nowrap;">${escapeHtml(message)}${
+      action
+        ? `<button data-action="toast-action" style="height:32px;padding:0 12px;border-radius:999px;
+            background:var(--accent);border:none;color:var(--canvas);font-size:var(--text-xs);
+            font-weight:var(--weight-medium);font-family:inherit;">${escapeHtml(action.label)}</button>`
+        : ''
+    }</div>`);
+  if (action) {
+    el.querySelector('[data-action=toast-action]')?.addEventListener('click', () => {
+      el.remove();
+      action.run();
+    });
+  }
   document.body.append(el);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.remove(), 1800);
+  toastTimer = setTimeout(() => el.remove(), action ? 6000 : 1800);
 }
 
 /* ---------- processing ---------- */
@@ -156,55 +181,67 @@ function scaledContext(
   return ctx;
 }
 
+/** Edit-or-export base buffers from the source bitmaps at a given resolution. */
+function makeBase(orig: ImageBitmap, cutout: ImageBitmap, maxDim: number): BaseBuffers {
+  const scale = Math.min(1, maxDim / Math.max(cutout.width, cutout.height));
+  const width = Math.round(cutout.width * scale);
+  const height = Math.round(cutout.height * scale);
+  const origRgba = scaledContext(orig, width, height).getImageData(0, 0, width, height).data;
+  const cutRgba = scaledContext(cutout, width, height).getImageData(0, 0, width, height).data;
+  const baseAlpha = new Uint8Array(width * height);
+  for (let p = 0; p < baseAlpha.length; p++) baseAlpha[p] = cutRgba[p * 4 + 3]!;
+  return { width, height, origRgba, baseAlpha };
+}
+
 async function openSession(
   id: string,
   fileName: string,
   originalBlob: Blob,
   cutoutBlob: Blob
 ): Promise<EditSession> {
-  const cutoutBitmap = await createImageBitmap(cutoutBlob);
-  const origBitmap = await createImageBitmap(originalBlob);
-  const scale = Math.min(1, EDIT_DIM / Math.max(cutoutBitmap.width, cutoutBitmap.height));
-  const width = Math.round(cutoutBitmap.width * scale);
-  const height = Math.round(cutoutBitmap.height * scale);
+  const [cutoutBitmap, origBitmap] = await Promise.all([
+    createImageBitmap(cutoutBlob),
+    createImageBitmap(originalBlob)
+  ]);
+  const base = makeBase(origBitmap, cutoutBitmap, EDIT_DIM);
+  const { width, height } = base;
 
-  const origRgba = scaledContext(origBitmap, width, height).getImageData(0, 0, width, height).data;
-  const cutRgba = scaledContext(cutoutBitmap, width, height).getImageData(0, 0, width, height).data;
-  const baseAlpha = new Uint8Array(width * height);
-  for (let p = 0; p < baseAlpha.length; p++) baseAlpha[p] = cutRgba[p * 4 + 3]!;
+  const origCanvas = document.createElement('canvas');
+  origCanvas.width = width;
+  origCanvas.height = height;
+  origCanvas
+    .getContext('2d')!
+    .putImageData(new ImageData(base.origRgba as Uint8ClampedArray<ArrayBuffer>, width, height), 0, 0);
 
   return {
     id,
     fileName,
     width,
     height,
-    origRgba,
-    baseAlpha,
+    base,
+    subjectScratch: new Uint8ClampedArray(base.origRgba),
+    origCanvas,
     origBitmap,
     cutoutBitmap,
     ops: [],
-    alpha: baseAlpha,
-    corrected: new Uint8ClampedArray(0),
+    serverDeleted: false,
+    trimOffered: false,
+    alpha: base.baseAlpha,
     crop: { x0: 0, y0: 0, x1: width, y1: height },
     beforeCanvas: document.createElement('canvas'),
     subjectCanvas: document.createElement('canvas')
   };
 }
 
-/** Rebuild everything derived from (base mask + ops): effective alpha, lighting
- * correction, crop, and the before/subject canvases. */
+/** Rebuild everything derived from (base mask + ops) via the shared pipeline:
+ * effective alpha, lighting correction, crop, and the before/subject canvases. */
 function recompute(s: EditSession): void {
   const { width: w, height: h } = s;
-  s.alpha = replayOps(s.baseAlpha, w, h, s.ops);
-
-  // Working subject: original colours under the effective mask — this is what
-  // lets the add-brush restore pixels the segmentation cut away.
-  const subject = new Uint8ClampedArray(s.origRgba);
-  for (let p = 0; p < s.alpha.length; p++) subject[p * 4 + 3] = s.alpha[p]!;
-
-  s.corrected = correctLighting(subject, s.origRgba, w, h).rgba;
-  const box = alphaBBox(s.corrected, w, h);
-  s.crop = box ? padBBox(box, w, h) : { x0: 0, y0: 0, x1: w, y1: h };
+  const view = deriveView(s.base, editAlpha(s.base, s.ops), s.subjectScratch);
+  s.alpha = view.alpha;
+  s.crop = view.crop;
+  state.exportCache = null;
+  state.exportPending = null;
 
   const cw = s.crop.x1 - s.crop.x0;
   const ch = s.crop.y1 - s.crop.y0;
@@ -212,19 +249,19 @@ function recompute(s: EditSession): void {
   const full = document.createElement('canvas');
   full.width = w;
   full.height = h;
-  full.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(s.corrected), w, h), 0, 0);
+  full
+    .getContext('2d')!
+    .putImageData(new ImageData(view.corrected as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
 
   s.subjectCanvas.width = cw;
   s.subjectCanvas.height = ch;
   s.subjectCanvas.getContext('2d')!.drawImage(full, s.crop.x0, s.crop.y0, cw, ch, 0, 0, cw, ch);
 
-  const orig = document.createElement('canvas');
-  orig.width = w;
-  orig.height = h;
-  orig.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(s.origRgba), w, h), 0, 0);
   s.beforeCanvas.width = cw;
   s.beforeCanvas.height = ch;
-  s.beforeCanvas.getContext('2d')!.drawImage(orig, s.crop.x0, s.crop.y0, cw, ch, 0, 0, cw, ch);
+  s.beforeCanvas
+    .getContext('2d')!
+    .drawImage(s.origCanvas, s.crop.x0, s.crop.y0, cw, ch, 0, 0, cw, ch);
 }
 
 function commitOp(op: Op): void {
@@ -250,49 +287,57 @@ function undo(): void {
 
 /* ---------- export + flywheel ---------- */
 
-async function exportPng(): Promise<Blob> {
-  const s = state.session;
-  if (!s) throw new Error('no session');
-  const scale = Math.min(1, EXPORT_DIM / Math.max(s.cutoutBitmap.width, s.cutoutBitmap.height));
-  const w = Math.round(s.cutoutBitmap.width * scale);
-  const h = Math.round(s.cutoutBitmap.height * scale);
-
-  const origRgba = scaledContext(s.origBitmap, w, h).getImageData(0, 0, w, h).data;
-  const cutRgba = scaledContext(s.cutoutBitmap, w, h).getImageData(0, 0, w, h).data;
-  const base = new Uint8Array(w * h);
-  for (let p = 0; p < base.length; p++) base[p] = cutRgba[p * 4 + 3]!;
-  const alpha = replayOps(base, w, h, s.ops); // same ops, export resolution
-
-  const subject = new Uint8ClampedArray(origRgba);
-  for (let p = 0; p < alpha.length; p++) subject[p * 4 + 3] = alpha[p]!;
-  const corrected = correctLighting(subject, origRgba, w, h).rgba;
-
-  const box = alphaBBox(corrected, w, h);
-  const crop = box ? padBBox(box, w, h) : { x0: 0, y0: 0, x1: w, y1: h };
+/** Full-resolution export through the same pipeline as the preview: the
+ * user's edits (captured at edit resolution) projected onto the export-scale
+ * mask, lighting re-run, flattened onto true black. */
+async function buildExport(s: EditSession): Promise<ExportResult> {
+  const exportBase = makeBase(s.origBitmap, s.cutoutBitmap, WORKING_DIM);
+  const view = deriveView(exportBase, projectedAlpha(s.base, s.ops, exportBase));
+  const { width: w, height: h } = exportBase;
 
   const full = document.createElement('canvas');
   full.width = w;
   full.height = h;
-  full.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(corrected), w, h), 0, 0);
+  full
+    .getContext('2d')!
+    .putImageData(new ImageData(view.corrected as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
 
   const out = document.createElement('canvas');
-  out.width = crop.x1 - crop.x0;
-  out.height = crop.y1 - crop.y0;
+  out.width = view.crop.x1 - view.crop.x0;
+  out.height = view.crop.y1 - view.crop.y0;
   const ctx = out.getContext('2d')!;
   ctx.fillStyle = '#000000'; // exports on black, always
   ctx.fillRect(0, 0, out.width, out.height);
-  ctx.drawImage(full, crop.x0, crop.y0, out.width, out.height, 0, 0, out.width, out.height);
+  ctx.drawImage(full, view.crop.x0, view.crop.y0, out.width, out.height, 0, 0, out.width, out.height);
 
-  return new Promise((resolve, reject) =>
+  const blob = await new Promise<Blob>((resolve, reject) =>
     out.toBlob((b) => (b ? resolve(b) : reject(new Error('export failed'))), 'image/png')
   );
+  return { blob, width: out.width, height: out.height };
+}
+
+/** Kick off (or reuse) the export for the current ops — the download sheet
+ * calls this on open so the exact size shows and the download is instant. */
+function ensureExport(): Promise<ExportResult> {
+  const s = state.session;
+  if (!s) return Promise.reject(new Error('no session'));
+  if (state.exportCache) return Promise.resolve(state.exportCache);
+  if (!state.exportPending) {
+    state.exportPending = buildExport(s).then((result) => {
+      state.exportCache = result;
+      state.exportPending = null;
+      if (state.sheet) render(); // refresh the sheet's size line
+      return result;
+    });
+  }
+  return state.exportPending;
 }
 
 /** Every correction is a human-verified mask (SPEC §9). Downscaled, greyscale,
  * quietly — never in the way of the download. */
 function sendCorrectedMask(): void {
   const s = state.session;
-  if (!s || s.ops.length === 0) return;
+  if (!s || s.ops.length === 0 || s.serverDeleted) return;
   try {
     const scale = Math.min(1, 1024 / Math.max(s.width, s.height));
     const mw = Math.round(s.width * scale);
@@ -324,18 +369,34 @@ function sendCorrectedMask(): void {
 async function downloadResult(): Promise<void> {
   set({ busy: true });
   try {
-    const blob = await exportPng();
+    const { blob } = await ensureExport();
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob);
+    a.href = url;
     a.download = 'studioshot.png';
     a.click();
-    URL.revokeObjectURL(a.href);
+    // The download navigation fetches the blob URL asynchronously; revoking
+    // on the same tick intermittently aborts it (Safari/Firefox).
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
     sendCorrectedMask();
     set({ busy: false, sheet: false });
     toast('Saved');
   } catch {
     set({ busy: false });
     toast('Export failed — try again');
+  }
+}
+
+async function deleteFromServer(): Promise<void> {
+  const s = state.session;
+  if (!s || s.serverDeleted) return;
+  try {
+    await deleteImage(s.id);
+    s.serverDeleted = true;
+    render();
+    toast('Deleted from our servers');
+  } catch {
+    toast("Couldn't delete — try again");
   }
 }
 
@@ -453,6 +514,27 @@ function accountLine(): string {
   </div>`;
 }
 
+/** Shared bottom-sheet chrome: dimmed backdrop, raised card, title row with
+ * close button. Body markup is the caller's; close wiring is done here. */
+function bottomSheet(title: string, bodyHtml: string, onClose: () => void): HTMLElement {
+  const sheet = html(`<div style="position:fixed;inset:0;z-index:40;">
+    <div data-action="close" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);"></div>
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface-raised);
+      border-radius:var(--radius-card) var(--radius-card) 0 0;border-top:1px solid var(--border-strong);
+      padding:14px 16px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;
+      gap:var(--space-3);">
+      <div style="display:flex;align-items:center;">
+        <div style="flex:1;font-size:var(--text-md);font-weight:var(--weight-medium);">${escapeHtml(title)}</div>
+        <button data-action="close" aria-label="Close" style="width:36px;height:36px;background:none;
+          border:none;color:var(--text-secondary);font-size:16px;">✕</button>
+      </div>
+      ${bodyHtml}
+    </div>
+  </div>`);
+  sheet.querySelectorAll('[data-action=close]').forEach((el) => el.addEventListener('click', onClose));
+  return sheet;
+}
+
 function renderAuthSheet(): void {
   const kind = state.authSheet!;
   const body =
@@ -479,22 +561,7 @@ function renderAuthSheet(): void {
             background:var(--accent);border:none;color:var(--canvas);font-size:var(--text-md);
             font-weight:var(--weight-medium);">Claim it</button>`;
   const titles = { signin: 'Sign in', sent: 'Link sent', username: 'Choose a username' } as const;
-  const sheet = html(`<div style="position:fixed;inset:0;z-index:40;">
-    <div data-action="close" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);"></div>
-    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface-raised);
-      border-radius:var(--radius-card) var(--radius-card) 0 0;border-top:1px solid var(--border-strong);
-      padding:14px 16px 24px;display:flex;flex-direction:column;gap:var(--space-3);">
-      <div style="display:flex;align-items:center;">
-        <div style="flex:1;font-size:var(--text-md);font-weight:var(--weight-medium);">${titles[kind]}</div>
-        <button data-action="close" aria-label="Close" style="width:36px;height:36px;background:none;
-          border:none;color:var(--text-secondary);font-size:16px;">✕</button>
-      </div>
-      ${body}
-    </div>
-  </div>`);
-  sheet.querySelectorAll('[data-action=close]').forEach((el) =>
-    el.addEventListener('click', () => set({ authSheet: null }))
-  );
+  const sheet = bottomSheet(titles[kind], body, () => set({ authSheet: null }));
   sheet.querySelector('[data-action=send-link]')?.addEventListener('click', () => {
     const email = sheet.querySelector<HTMLInputElement>('[data-role=email]')?.value.trim();
     if (!email || !email.includes('@')) {
@@ -675,6 +742,7 @@ function mountCompare(frame: HTMLElement, s: EditSession): void {
       apply(1);
       requestAnimationFrame(step);
     }
+    offerRememberedTrim(s);
   } else apply(0);
 
   const drag = (e: PointerEvent): void => {
@@ -688,6 +756,27 @@ function mountCompare(frame: HTMLElement, s: EditSession): void {
   frame.addEventListener('pointermove', (e) => {
     if (e.buttons === 1) drag(e);
   });
+}
+
+/** SPEC §4: the remembered trim is offered on the next upload — the second
+ * photo takes one tap. Shown once per photo, only when a trim is remembered
+ * and nothing has been edited yet. */
+function offerRememberedTrim(s: EditSession): void {
+  if (s.trimOffered || s.ops.length > 0) return;
+  const remembered = Number(localStorage.getItem(TRIM_KEY));
+  if (!(remembered > 0 && remembered < 1)) return;
+  s.trimOffered = true;
+  setTimeout(() => {
+    if (state.session !== s || state.tool !== null || s.ops.length > 0) return;
+    toast('Same setup as last time?', {
+      label: 'Apply last trim',
+      run: () => {
+        state.trimFrac = remembered;
+        commitOp({ kind: 'trim', y: remembered });
+        toast('Trimmed below the line');
+      }
+    });
+  }, 700); // after the reveal settles
 }
 
 function toolStrip(hint: string, primary: string, extra = ''): HTMLElement {
@@ -758,11 +847,10 @@ function mountTap(frame: HTMLElement, s: EditSession): void {
   catcher.addEventListener('click', (e) => {
     const { x, y } = toImageCoords(frame, s, e.clientX, e.clientY);
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    // Probe on a copy first so a miss doesn't burn an op on the undo stack.
-    const probe = replayOps(s.baseAlpha, s.width, s.height, s.ops);
+    // Probe the current effective mask so a miss doesn't burn an undo step.
     const px = Math.min(s.width - 1, Math.round(x * s.width));
     const py = Math.min(s.height - 1, Math.round(y * s.height));
-    if (probe[py * s.width + px]! <= 8) {
+    if (s.alpha[py * s.width + px]! <= ALPHA_THRESHOLD) {
       toast('Nothing to remove there');
       return;
     }
@@ -788,7 +876,7 @@ function mountBrush(frame: HTMLElement, s: EditSession): void {
   let points: Array<[number, number]> = [];
 
   const sizeOverlay = (): void => {
-    if (overlay.width !== frame.clientWidth) {
+    if (overlay.width !== frame.clientWidth || overlay.height !== frame.clientHeight) {
       overlay.width = frame.clientWidth;
       overlay.height = frame.clientHeight;
     }
@@ -823,17 +911,32 @@ function mountBrush(frame: HTMLElement, s: EditSession): void {
     ctx.stroke();
   };
 
+  // Pointer events fire far faster than frames render; collect points as they
+  // arrive and draw at most once per animation frame.
+  let drawQueued = false;
+  const queueDraw = (): void => {
+    if (drawQueued) return;
+    drawQueued = true;
+    requestAnimationFrame(() => {
+      drawQueued = false;
+      draw();
+    });
+  };
+
   catcher.addEventListener('pointerdown', (e) => {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const { x, y } = toImageCoords(frame, s, e.clientX, e.clientY);
     points = [[x, y]];
-    draw();
+    queueDraw();
   });
   catcher.addEventListener('pointermove', (e) => {
     if (e.buttons !== 1 || points.length === 0) return;
-    const { x, y } = toImageCoords(frame, s, e.clientX, e.clientY);
-    points.push([x, y]);
-    draw();
+    const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [e];
+    for (const ev of events.length ? events : [e]) {
+      const { x, y } = toImageCoords(frame, s, ev.clientX, ev.clientY);
+      points.push([x, y]);
+    }
+    queueDraw();
   });
   catcher.addEventListener('pointerup', () => {
     if (points.length === 0) return;
@@ -939,35 +1042,31 @@ function mountLoupe(frame: HTMLElement, s: EditSession): void {
 
 function renderSheet(): void {
   const s = state.session!;
-  const scale = Math.min(1, EXPORT_DIM / Math.max(s.cutoutBitmap.width, s.cutoutBitmap.height));
-  const ew = Math.round((s.crop.x1 - s.crop.x0) * (s.cutoutBitmap.width * scale) / s.width);
-  const eh = Math.round((s.crop.y1 - s.crop.y0) * (s.cutoutBitmap.height * scale) / s.height);
-  const sheet = html(`<div style="position:fixed;inset:0;z-index:40;">
-    <div data-action="close" style="position:absolute;inset:0;background:rgba(0,0,0,0.5);"></div>
-    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface-raised);
-      border-radius:var(--radius-card) var(--radius-card) 0 0;border-top:1px solid var(--border-strong);
-      padding:14px 16px 24px;display:flex;flex-direction:column;gap:var(--space-3);">
-      <div style="display:flex;align-items:center;">
-        <div style="flex:1;font-size:var(--text-md);font-weight:var(--weight-medium);">Download</div>
-        <button data-action="close" aria-label="Close" style="width:36px;height:36px;background:none;
-          border:none;color:var(--text-secondary);font-size:16px;">✕</button>
-      </div>
-      <div style="font-size:var(--text-sm);color:var(--text-secondary);line-height:1.45;">
-        Exports on black. The background you were viewing is just for checking.</div>
-      <div style="font-size:var(--text-sm);color:var(--text-tertiary);">PNG · ${ew} × ${eh}</div>
-      <button data-action="download" ${state.busy ? 'disabled' : ''} style="height:50px;
-        border-radius:var(--radius-control);background:var(--accent);border:none;color:var(--canvas);
-        font-size:var(--text-md);font-weight:var(--weight-medium);opacity:${state.busy ? 0.6 : 1};">
-        ${state.busy ? 'Preparing…' : 'Download PNG'}</button>
-    </div>
-  </div>`);
-  sheet.querySelectorAll('[data-action=close]').forEach((el) =>
-    el.addEventListener('click', () => set({ sheet: false }))
-  );
+  // The size line shows the real export's dimensions — same pipeline, cached
+  // so the download itself is instant.
+  const cached = state.exportCache;
+  const sizeLine = cached ? `PNG · ${cached.width} × ${cached.height}` : 'PNG · preparing…';
+  const body = `
+    <div style="font-size:var(--text-sm);color:var(--text-secondary);line-height:1.45;">
+      Exports on black. The background you were viewing is just for checking.</div>
+    <div style="font-size:var(--text-sm);color:var(--text-tertiary);">${sizeLine}</div>
+    <button data-action="download" ${state.busy ? 'disabled' : ''} style="height:50px;
+      border-radius:var(--radius-control);background:var(--accent);border:none;color:var(--canvas);
+      font-size:var(--text-md);font-weight:var(--weight-medium);opacity:${state.busy ? 0.6 : 1};">
+      ${state.busy ? 'Preparing…' : 'Download PNG'}</button>
+    <button data-action="delete" ${s.serverDeleted ? 'disabled' : ''} style="height:44px;background:none;
+      border:none;color:var(--text-tertiary);font-size:var(--text-xs);text-decoration:underline;
+      font-family:inherit;">
+      ${s.serverDeleted ? 'Deleted from our servers' : 'Delete this upload from our servers'}</button>`;
+  const sheet = bottomSheet('Download', body, () => set({ sheet: false }));
   sheet.querySelector('[data-action=download]')?.addEventListener('click', () => {
     void downloadResult();
   });
+  sheet.querySelector('[data-action=delete]')?.addEventListener('click', () => {
+    void deleteFromServer();
+  });
   app!.append(sheet);
+  void ensureExport().catch(() => undefined); // warm the cache; sheet re-renders when ready
 }
 
 /* ---------- utilities ---------- */

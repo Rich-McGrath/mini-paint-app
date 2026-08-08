@@ -48,7 +48,7 @@ async function callerId(c: Ctx): Promise<string | null> {
 /** Every per-image route requires the caller to own the record. A mismatch is
  * a 404, not a 403 — image ids are unguessable and existence is not disclosed. */
 async function ownedImage(c: Ctx): Promise<ImageRecord | null> {
-  const record = await getImage(c.env, c.req.param('id'));
+  const record = await getImage(c.env, c.req.param('id') ?? '');
   if (!record) return null;
   const caller = await callerId(c);
   return caller === record.user_id ? record : null;

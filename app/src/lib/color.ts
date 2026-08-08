@@ -30,6 +30,20 @@ export function linearToSrgbByte(c: number): number {
   return Math.max(0, Math.min(255, Math.round(s * 255)));
 }
 
+/** Fast linear→sRGB byte via a 4096-entry LUT — error under 1/255, monotonic.
+ * For per-pixel hot paths; linearToSrgbByte stays the exact reference. */
+export const LINEAR_TO_BYTE: Uint8Array = (() => {
+  const lut = new Uint8Array(4097);
+  for (let i = 0; i <= 4096; i++) lut[i] = linearToSrgbByte(i / 4096);
+  return lut;
+})();
+
+export function linearToSrgbByteFast(c: number): number {
+  if (c <= 0) return 0;
+  if (c >= 1) return 255;
+  return LINEAR_TO_BYTE[Math.round(c * 4096)]!;
+}
+
 /** Integer CIE L* (0–100) → the grey sRGB byte with that lightness. */
 export const L_TO_BYTE: Uint8Array = (() => {
   const lut = new Uint8Array(101);
