@@ -9,7 +9,8 @@
  * All steps work in linear light via the tested conversions in color.ts.
  */
 
-import { lToY, linearToSrgbByte, SRGB_TO_LINEAR, yToL } from './color';
+import { lToY, linearToSrgbByteFast, luminance, SRGB_TO_LINEAR, yToL } from './color';
+import { ALPHA_THRESHOLD } from './cutout';
 
 export interface LightingOptions {
   /** Acceptable zone for the subject's median lightness (CIE L*). A zone, not a
@@ -42,7 +43,7 @@ export const DEFAULTS: LightingOptions = {
   shadowLift: 6,
   shadowThreshold: 35,
   sharpenAmount: 0.3,
-  alphaThreshold: 8
+  alphaThreshold: ALPHA_THRESHOLD
 };
 
 export interface LightingParams {
@@ -77,7 +78,7 @@ export function estimateWbGains(
   r /= n;
   g /= n;
   b /= n;
-  const grey = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const grey = luminance(r, g, b);
   const clamp = (v: number) => Math.min(maxGain, Math.max(1 / maxGain, v));
   return [clamp(grey / (r || grey)), clamp(grey / (g || grey)), clamp(grey / (b || grey))];
 }
@@ -99,9 +100,15 @@ export function estimateExposureGain(
   let gain = 1;
   if (medianL < zone[0]) gain = Math.min(maxGain, lToY(zone[0]) / median);
   else if (medianL > zone[1]) gain = Math.max(minGain, lToY(zone[1]) / median);
-  // Never introduce clipping: keep the 99.5th percentile below white.
+  // Never introduce clipping: keep the 99.5th percentile below white. The cap
+  // is direction-aware — a brightening gain backs off (but never below 1),
+  // while a darkening gain may darken further (but never below the floor);
+  // raising a darkening gain would *add* clipping.
   const p995 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.995))]!;
-  if (p995 * gain > 0.97) gain = Math.max(1, 0.97 / p995);
+  if (p995 * gain > 0.97) {
+    const clipCap = 0.97 / p995;
+    gain = gain > 1 ? Math.max(1, clipCap) : Math.max(minGain, Math.min(gain, clipCap));
+  }
   return gain;
 }
 
@@ -209,7 +216,7 @@ export function correctLighting(
   // 2 — exposure from the subject, not the room.
   const Y = new Float32Array(subjectIdx.length);
   subjectIdx.forEach((p, k) => {
-    Y[k] = 0.2126 * R[p]! + 0.7152 * G[p]! + 0.0722 * B[p]!;
+    Y[k] = luminance(R[p]!, G[p]!, B[p]!);
   });
   const exposureGain = estimateExposureGain(
     Y,
@@ -220,10 +227,9 @@ export function correctLighting(
 
   // 3 — shadow lift in L*, hue-preserving (scales linear RGB by the Y ratio).
   const L = new Float32Array(n);
-  for (const p of subjectIdx) {
-    const y = (0.2126 * R[p]! + 0.7152 * G[p]! + 0.0722 * B[p]!) * exposureGain;
-    L[p] = yToL(Math.min(1, y));
-  }
+  subjectIdx.forEach((p, k) => {
+    L[p] = yToL(Math.min(1, Y[k]! * exposureGain));
+  });
   for (const p of subjectIdx) {
     const lifted = shadowLiftL(L[p]!, opt.shadowLift, opt.shadowThreshold);
     if (lifted !== L[p]) {
@@ -248,9 +254,9 @@ export function correctLighting(
       const after = lToY(Math.max(0, Math.min(100, sharpened[p]!)));
       if (before > 0) scale *= after / before;
     }
-    out[p * 4] = linearToSrgbByte(R[p]! * scale);
-    out[p * 4 + 1] = linearToSrgbByte(G[p]! * scale);
-    out[p * 4 + 2] = linearToSrgbByte(B[p]! * scale);
+    out[p * 4] = linearToSrgbByteFast(R[p]! * scale);
+    out[p * 4 + 1] = linearToSrgbByteFast(G[p]! * scale);
+    out[p * 4 + 2] = linearToSrgbByteFast(B[p]! * scale);
   }
 
   return {

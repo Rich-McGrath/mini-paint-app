@@ -21,9 +21,10 @@ binding = "IMAGES"
 bucket_name = "studioshot-images"
 
 [vars]
-# Production default. Set to "mock" for credential-free local development —
-# the mock returns the photo uncut, which also leaves lighting inert (no
-# background/subject split to correct against).
+# Production default. Set to "mock" (worker/.dev.vars) for credential-free
+# local development — the mock returns the photo uncut, so white balance goes
+# inert (no background pixels to sample); exposure/shadow-lift/sharpen still
+# run over the whole photo.
 SEGMENTATION_PROVIDER = "fal"
 # Bake-off winner (owner eyeball over the seven fixtures, 7 Aug 2026) vs BRIA RMBG-2.0.
 FAL_MODEL = "fal-ai/birefnet/v2"

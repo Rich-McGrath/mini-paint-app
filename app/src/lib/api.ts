@@ -16,9 +16,14 @@ export function userId(): string {
   return id;
 }
 
-function authHeaders(): Record<string, string> {
+/** Every image route is ownership-checked server-side, so every call carries
+ * the caller's identity: anonymous id always, auth token when signed in. */
+function identityHeaders(): Record<string, string> {
   const session = currentSession();
-  return session ? { Authorization: `Bearer ${session.accessToken}` } : {};
+  return {
+    'x-user-id': userId(),
+    ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {})
+  };
 }
 
 async function ok(res: Response): Promise<Response> {
@@ -34,7 +39,7 @@ export async function uploadImage(file: File): Promise<string> {
   const res = await ok(
     await fetch('/api/images', {
       method: 'POST',
-      headers: { 'content-type': 'image/jpeg', 'x-user-id': userId(), ...authHeaders() },
+      headers: { 'content-type': 'image/jpeg', ...identityHeaders() },
       body: jpeg
     })
   );
@@ -46,7 +51,13 @@ export async function segmentImage(id: string): Promise<void> {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), 120_000);
   try {
-    await ok(await fetch(`/api/images/${id}/segment`, { method: 'POST', signal: abort.signal }));
+    await ok(
+      await fetch(`/api/images/${id}/segment`, {
+        method: 'POST',
+        headers: identityHeaders(),
+        signal: abort.signal
+      })
+    );
   } catch (err) {
     if (abort.signal.aborted) {
       throw new Error('This is taking longer than it should. Please try again.');
@@ -58,12 +69,12 @@ export async function segmentImage(id: string): Promise<void> {
 }
 
 export async function fetchCutout(id: string): Promise<Blob> {
-  const res = await ok(await fetch(`/api/images/${id}/cutout`));
+  const res = await ok(await fetch(`/api/images/${id}/cutout`, { headers: identityHeaders() }));
   return res.blob();
 }
 
 export async function fetchOriginal(id: string): Promise<Blob> {
-  const res = await ok(await fetch(`/api/images/${id}/original`));
+  const res = await ok(await fetch(`/api/images/${id}/original`, { headers: identityHeaders() }));
   return res.blob();
 }
 
@@ -73,10 +84,15 @@ export async function uploadMask(id: string, maskPng: Blob): Promise<void> {
   await ok(
     await fetch(`/api/images/${id}/mask`, {
       method: 'POST',
-      headers: { 'content-type': 'image/png' },
+      headers: { 'content-type': 'image/png', ...identityHeaders() },
       body: maskPng
     })
   );
+}
+
+/** Deletion, promised by the terms: removes the record and every stored object. */
+export async function deleteImage(id: string): Promise<void> {
+  await ok(await fetch(`/api/images/${id}`, { method: 'DELETE', headers: identityHeaders() }));
 }
 
 export interface Me {
@@ -88,16 +104,22 @@ export interface Me {
 export async function fetchMe(): Promise<Me | null> {
   const session = currentSession();
   if (!session) return null;
-  const res = await fetch('/api/me', { headers: authHeaders() });
-  if (!res.ok) return null; // expired token → treat as signed out
-  return (await res.json()) as Me;
+  // Offline or unreachable is "not signed in right now", never an exception —
+  // this runs unawaited at boot.
+  try {
+    const res = await fetch('/api/me', { headers: identityHeaders() });
+    if (!res.ok) return null; // expired token → treat as signed out
+    return (await res.json()) as Me;
+  } catch {
+    return null;
+  }
 }
 
 export async function claimUsername(username: string): Promise<void> {
   await ok(
     await fetch('/api/username', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...authHeaders() },
+      headers: { 'content-type': 'application/json', ...identityHeaders() },
       body: JSON.stringify({ username })
     })
   );

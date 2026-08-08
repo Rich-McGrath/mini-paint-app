@@ -12,6 +12,7 @@ export interface ImageRecord {
   original_type: string;
   cutout_key: string | null;
   corrected_mask_key: string | null;
+  training_key: string | null; // downscaled image copy kept with the corrected mask
   provider: string | null;
   status: 'uploaded' | 'cutout' | 'corrected';
   created_at: string;
@@ -24,7 +25,16 @@ function configured(env: Env): boolean {
   return Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY);
 }
 
-async function rest(env: Env, path: string, init: RequestInit): Promise<Response> {
+/* Path params flow into uuid-column filters; PostgREST answers 400 for
+ * malformed uuids, which must surface as not-found, not a 500. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function rest(
+  env: Env,
+  path: string,
+  init: RequestInit,
+  tolerated: number[] = []
+): Promise<Response> {
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
     headers: {
@@ -34,7 +44,9 @@ async function rest(env: Env, path: string, init: RequestInit): Promise<Response
       ...init.headers
     }
   });
-  if (!res.ok) throw new Error(`supabase ${res.status}: ${await res.text()}`);
+  if (!res.ok && !tolerated.includes(res.status)) {
+    throw new Error(`supabase ${res.status}: ${await res.text()}`);
+  }
   return res;
 }
 
@@ -47,13 +59,24 @@ export async function createImage(env: Env, record: ImageRecord): Promise<void> 
 }
 
 export async function getImage(env: Env, id: string): Promise<ImageRecord | null> {
+  if (!UUID_RE.test(id)) return null;
   if (!configured(env)) return memory.get(id) ?? null;
   const res = await rest(env, `images?id=eq.${encodeURIComponent(id)}`, { method: 'GET' });
   const rows = (await res.json()) as ImageRecord[];
   return rows[0] ?? null;
 }
 
+export async function deleteImage(env: Env, id: string): Promise<void> {
+  if (!UUID_RE.test(id)) return;
+  if (!configured(env)) {
+    memory.delete(id);
+    return;
+  }
+  await rest(env, `images?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 export async function updateImage(env: Env, id: string, patch: Partial<ImageRecord>): Promise<void> {
+  if (!UUID_RE.test(id)) return;
   if (!configured(env)) {
     const existing = memory.get(id);
     if (existing) memory.set(id, { ...existing, ...patch });
@@ -83,18 +106,15 @@ export async function claimUsername(env: Env, userId: string, username: string):
     memoryUsernames.set(userId, username);
     return true;
   }
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/usernames?on_conflict=user_id`, {
-    method: 'POST',
-    headers: {
-      apikey: env.SUPABASE_SERVICE_KEY!,
-      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates'
+  const res = await rest(
+    env,
+    'usernames?on_conflict=user_id',
+    {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify({ user_id: userId, username })
     },
-    body: JSON.stringify({ user_id: userId, username })
-  });
-  if (res.ok) return true;
-  const body = await res.text();
-  if (res.status === 409 || body.includes('23505')) return false; // unique violation: taken
-  throw new Error(`supabase ${res.status}: ${body}`);
+    [409]
+  );
+  return res.ok; // 409 = unique violation: taken
 }

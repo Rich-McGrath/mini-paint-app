@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { removeRegion, replayOps, type Op } from './editor';
+import { applyEditDiff, computeEditDiff, removeRegion, replayOps, type Op } from './editor';
 
 /** 8×8 mask with two separate 2×2 opaque blobs and an opaque bottom row. */
 function testMask(): { alpha: Uint8Array; w: number; h: number } {
@@ -90,6 +90,52 @@ describe('brush', () => {
       }
     ]);
     for (let x = 3; x < 29; x++) expect(out[4 * w + x], `x=${x}`).toBe(255);
+  });
+});
+
+describe('edit-diff projection (preview must equal export)', () => {
+  it('is the identity at the editing resolution', () => {
+    const { alpha, w, h } = testMask();
+    const ops: Op[] = [
+      { kind: 'trim', y: 7 / 8 },
+      { kind: 'tap', x: 1.5 / 8, y: 1.5 / 8 }
+    ];
+    const diff = computeEditDiff(alpha, w, h, ops);
+    const projected = applyEditDiff(alpha, w, h, diff, w, h);
+    expect(projected).toEqual(replayOps(alpha, w, h, ops));
+  });
+
+  it('keeps a tap removal removed at a higher resolution even when connectivity differs', () => {
+    // Edit res: two blobs joined by a bridge — one tap removes both.
+    const w = 8;
+    const h = 4;
+    const editBase = new Uint8Array(w * h);
+    for (const x of [1, 2, 3, 4, 5, 6]) editBase[1 * w + x] = 255; // connected strip
+    const ops: Op[] = [{ kind: 'tap', x: 2 / 8, y: 1 / 4 }];
+    const diff = computeEditDiff(editBase, w, h, ops);
+
+    // Export res (2×): the bridge has a real gap — native replay would leave
+    // the right half behind. The projected diff must still remove it.
+    const W = 16;
+    const H = 8;
+    const exportBase = new Uint8Array(W * H);
+    for (const x of [2, 3, 4, 5, 6, 7]) exportBase[3 * W + x] = 255; // left region
+    for (const x of [10, 11, 12, 13]) exportBase[3 * W + x] = 255; // right region, gap at 8–9
+    const projected = applyEditDiff(exportBase, W, H, diff, w, h);
+    for (let p = 0; p < projected.length; p++) expect(projected[p], `p=${p}`).toBe(0);
+  });
+
+  it('projects added pixels onto resolutions where the base was transparent', () => {
+    const w = 8;
+    const h = 8;
+    const editBase = new Uint8Array(w * h);
+    const ops: Op[] = [
+      { kind: 'brush', mode: 'add', radius: 2 / 8, points: [[0.5, 0.5]] }
+    ];
+    const diff = computeEditDiff(editBase, w, h, ops);
+    const projected = applyEditDiff(new Uint8Array(16 * 16), 16, 16, diff, w, h);
+    expect(projected[8 * 16 + 8]).toBe(255); // centre added at 2× res
+    expect(projected[0]).toBe(0);
   });
 });
 

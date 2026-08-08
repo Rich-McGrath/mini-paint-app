@@ -29,7 +29,8 @@ edge quality at full resolution, latency through the queue API, and per-image pr
 floor test in SPEC §10 means any production model should clear the bar.
 
 **Decision (7 Aug 2026): BiRefNet v2.** Both candidates ran over the seven fixtures via
-`scripts/bakeoff.mjs`; the owner judged BiRefNet v2 better by eyeball. Locked in
+the bake-off script (now `scripts/bakeoff.ts`, driving the production
+`FalProvider`); the owner judged BiRefNet v2 better by eyeball. Locked in
 `wrangler.toml` as `FAL_MODEL`. Per-image price (read off the fal dashboard after the run)
 still feeds the free-tier decision in SPEC §11.
 

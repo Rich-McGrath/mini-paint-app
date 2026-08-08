@@ -104,6 +104,19 @@ describe('exposure', () => {
     expect(estimateExposureGain(new Float32Array([0.9]), zone, 3, 0.75)).toBeGreaterThanOrEqual(0.75);
     expect(estimateExposureGain(new Float32Array(), zone, 3, 0.75)).toBe(1);
   });
+
+  it('clip guard never cancels a darkening correction', () => {
+    // Overexposed subject (median above the zone) with WB-pushed highlights
+    // beyond white: the guard must keep the gain at or below the computed
+    // darkening, never raise it back toward 1 (which would add clipping).
+    const zone: [number, number] = [40, 60];
+    const Y = new Float32Array(200).fill(0.5); // median L* ≈ 76 → darkening
+    Y[199] = 1.3; // clipped highlight after WB
+    Y[198] = 1.3;
+    const gain = estimateExposureGain(Y, zone, 3, 0.75);
+    expect(gain).toBeLessThan(1);
+    expect(gain).toBeGreaterThanOrEqual(0.75);
+  });
 });
 
 describe('shadow lift', () => {
