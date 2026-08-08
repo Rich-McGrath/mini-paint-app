@@ -18,13 +18,17 @@ create table if not exists images (
 
 create index if not exists images_user_id_idx on images (user_id, created_at desc);
 
+-- Additive migrations for existing projects (create table if not exists
+-- does not add columns to an existing table).
+alter table images add column if not exists training_key text;
+
 alter table images enable row level security;
 
 -- Access is explicit ("Automatically expose new tables" is disabled in the
 -- project settings). Only the Worker's service role touches this table; the
--- public Data API roles get nothing.
+-- public Data API roles get nothing. Delete backs the terms' deletion promise.
 revoke all on table images from anon, authenticated;
-grant select, insert, update on table images to service_role;
+grant select, insert, update, delete on table images to service_role;
 
 -- Optional accounts: username reserved at sign-up, unique forever (SPEC §5).
 create table if not exists usernames (
@@ -33,6 +37,9 @@ create table if not exists usernames (
     check (username ~ '^[a-zA-Z0-9_]{3,20}$'),
   created_at timestamptz not null default now()
 );
+
+-- Uniqueness is case-insensitive: "Painter" and "painter" are one reservation.
+create unique index if not exists usernames_lower_idx on usernames (lower(username));
 
 alter table usernames enable row level security;
 revoke all on table usernames from anon, authenticated;

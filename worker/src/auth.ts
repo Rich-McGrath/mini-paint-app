@@ -17,10 +17,16 @@ export async function resolveUser(
   if (!authorization?.startsWith('Bearer ') || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) {
     return null;
   }
-  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
-    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: authorization }
-  });
-  if (!res.ok) return null;
-  const user = (await res.json()) as { id?: string; email?: string };
-  return user.id ? { id: user.id, email: user.email ?? null } : null;
+  // A reachability failure must degrade to anonymous, not fail the request —
+  // the image routes work without auth and carry an x-user-id fallback.
+  try {
+    const res = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: authorization }
+    });
+    if (!res.ok) return null;
+    const user = (await res.json()) as { id?: string; email?: string };
+    return user.id ? { id: user.id, email: user.email ?? null } : null;
+  } catch {
+    return null;
+  }
 }

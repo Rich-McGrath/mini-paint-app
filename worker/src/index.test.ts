@@ -5,8 +5,11 @@ import app, { type Env } from './index';
 function r2Stub(): R2Bucket {
   const store = new Map<string, { bytes: Uint8Array; contentType?: string }>();
   return {
-    put: async (key: string, value: ArrayBuffer | Uint8Array, opts?: R2PutOptions) => {
-      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+    put: async (key: string, value: ArrayBuffer | Uint8Array | ReadableStream, opts?: R2PutOptions) => {
+      let bytes: Uint8Array;
+      if (value instanceof Uint8Array) bytes = value;
+      else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
+      else bytes = new Uint8Array(await new Response(value).arrayBuffer());
       store.set(key, { bytes, contentType: opts?.httpMetadata && 'contentType' in opts.httpMetadata ? opts.httpMetadata.contentType : undefined });
       return null;
     },
@@ -17,7 +20,11 @@ function r2Stub(): R2Bucket {
         body: new Blob([new Uint8Array(entry.bytes)]).stream(),
         arrayBuffer: async () => entry.bytes.buffer.slice(0) as ArrayBuffer
       };
-    }
+    },
+    delete: async (key: string) => {
+      store.delete(key);
+    },
+    _store: store
   } as unknown as R2Bucket;
 }
 
@@ -26,13 +33,14 @@ function env(): Env {
 }
 
 const PHOTO = new Uint8Array([137, 80, 78, 71, 1, 2, 3, 4, 5]);
+const AS_USER = { 'x-user-id': 'test-user' };
 
-function upload(e: Env) {
+function upload(e: Env, user = 'test-user') {
   return app.request(
     '/api/images',
     {
       method: 'POST',
-      headers: { 'content-type': 'image/jpeg', 'x-user-id': 'test-user' },
+      headers: { 'content-type': 'image/jpeg', 'x-user-id': user },
       body: PHOTO.slice()
     },
     e
@@ -48,11 +56,15 @@ describe('walking skeleton', () => {
     const { id } = (await created.json()) as { id: string };
     expect(id).toBeTruthy();
 
-    const seg = await app.request(`/api/images/${id}/segment`, { method: 'POST' }, e);
+    const seg = await app.request(
+      `/api/images/${id}/segment`,
+      { method: 'POST', headers: AS_USER },
+      e
+    );
     expect(seg.status).toBe(200);
     expect(await seg.json()).toMatchObject({ id, status: 'cutout', model: 'mock/identity' });
 
-    const record = await app.request(`/api/images/${id}`, {}, e);
+    const record = await app.request(`/api/images/${id}`, { headers: AS_USER }, e);
     expect(record.status).toBe(200);
     expect(await record.json()).toMatchObject({
       id,
@@ -60,23 +72,91 @@ describe('walking skeleton', () => {
       cutout: `/api/images/${id}/cutout`
     });
 
-    const cutout = await app.request(`/api/images/${id}/cutout`, {}, e);
+    const cutout = await app.request(`/api/images/${id}/cutout`, { headers: AS_USER }, e);
     expect(cutout.status).toBe(200);
     expect(cutout.headers.get('content-type')).toBe('image/png');
     expect(new Uint8Array(await cutout.arrayBuffer())).toEqual(PHOTO);
   });
 
-  it('stores a corrected mask (the flywheel)', async () => {
+  it('segmentation is idempotent — one vendor call per image', async () => {
+    const e = env();
+    const { id } = (await (await upload(e)).json()) as { id: string };
+    const first = await app.request(
+      `/api/images/${id}/segment`,
+      { method: 'POST', headers: AS_USER },
+      e
+    );
+    expect(((await first.json()) as { cached?: boolean }).cached).toBeUndefined();
+    const second = await app.request(
+      `/api/images/${id}/segment`,
+      { method: 'POST', headers: AS_USER },
+      e
+    );
+    expect(await second.json()).toMatchObject({ id, cached: true });
+  });
+
+  it('denies every per-image route to a different caller', async () => {
+    const e = env();
+    const { id } = (await (await upload(e)).json()) as { id: string };
+    const other = { 'x-user-id': 'someone-else' };
+    for (const [path, init] of [
+      [`/api/images/${id}`, { headers: other }],
+      [`/api/images/${id}/segment`, { method: 'POST', headers: other }],
+      [`/api/images/${id}/original`, { headers: other }],
+      [
+        `/api/images/${id}/mask`,
+        { method: 'POST', headers: { ...other, 'content-type': 'image/png' }, body: PHOTO.slice() }
+      ],
+      [`/api/images/${id}`, { method: 'DELETE', headers: other }]
+    ] as const) {
+      const res = await app.request(path, init as RequestInit, e);
+      expect(res.status, `${init.method ?? 'GET'} ${path}`).toBe(404); // not 403: no existence leak
+    }
+  });
+
+  it('stores a corrected mask plus the training image copy (the flywheel)', async () => {
     const e = env();
     const { id } = (await (await upload(e)).json()) as { id: string };
 
     const mask = await app.request(
       `/api/images/${id}/mask`,
-      { method: 'POST', headers: { 'content-type': 'image/png' }, body: PHOTO.slice() },
+      {
+        method: 'POST',
+        headers: { ...AS_USER, 'content-type': 'image/png' },
+        body: PHOTO.slice()
+      },
       e
     );
     expect(mask.status).toBe(200);
     expect(await mask.json()).toMatchObject({ id, status: 'corrected' });
+    const store = (e.IMAGES as unknown as { _store: Map<string, unknown> })._store;
+    expect(store.has(`masks/${id}.png`)).toBe(true);
+    expect(store.has(`training/${id}`)).toBe(true);
+  });
+
+  it('rejects a non-PNG mask', async () => {
+    const e = env();
+    const { id } = (await (await upload(e)).json()) as { id: string };
+    const res = await app.request(
+      `/api/images/${id}/mask`,
+      { method: 'POST', headers: { ...AS_USER, 'content-type': 'image/jpeg' }, body: PHOTO.slice() },
+      e
+    );
+    expect(res.status).toBe(415);
+  });
+
+  it('deletes the record and every stored object', async () => {
+    const e = env();
+    const { id } = (await (await upload(e)).json()) as { id: string };
+    await app.request(`/api/images/${id}/segment`, { method: 'POST', headers: AS_USER }, e);
+
+    const del = await app.request(`/api/images/${id}`, { method: 'DELETE', headers: AS_USER }, e);
+    expect(del.status).toBe(200);
+
+    const store = (e.IMAGES as unknown as { _store: Map<string, unknown> })._store;
+    expect(store.size).toBe(0);
+    const gone = await app.request(`/api/images/${id}`, { headers: AS_USER }, e);
+    expect(gone.status).toBe(404);
   });
 
   it('rejects non-image uploads and missing user ids', async () => {
@@ -96,12 +176,18 @@ describe('walking skeleton', () => {
     expect(noUser.status).toBe(400);
   });
 
-  it('404s for unknown images', async () => {
+  it('404s for unknown and malformed image ids', async () => {
     const e = env();
-    const res = await app.request('/api/images/nope', {}, e);
-    expect(res.status).toBe(404);
-    const seg = await app.request('/api/images/nope/segment', { method: 'POST' }, e);
-    expect(seg.status).toBe(404);
+    expect((await app.request('/api/images/nope', { headers: AS_USER }, e)).status).toBe(404);
+    expect(
+      (
+        await app.request(
+          '/api/images/00000000-0000-4000-8000-000000000000',
+          { headers: AS_USER },
+          e
+        )
+      ).status
+    ).toBe(404);
   });
 
   it('responds on /api/health', async () => {
