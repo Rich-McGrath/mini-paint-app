@@ -25,6 +25,10 @@ repo's `.nvmrc` selects it automatically via `nvm use`. After switching Node ver
 4. **Switch segmentation on** — in `worker/wrangler.toml`, set
    `SEGMENTATION_PROVIDER = "fal"` (leave `"mock"` for a credential-free walking skeleton;
    the mock returns the photo uncut).
+5. **R2 retention (originals)** — Cloudflare dashboard → R2 → `studioshot-images` →
+   Settings → Object lifecycle rules: add a rule for prefix `originals/` deleting objects
+   30 days after upload. Only `originals/` expires — `cutouts/` stay (results keep working),
+   and the flywheel pairs under `masks/` + `training/` are kept indefinitely.
 
 ## Optional sign-in (magic link)
 
